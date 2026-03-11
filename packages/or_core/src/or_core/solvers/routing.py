@@ -1,4 +1,4 @@
-"""Routing solver with OR-Tools for a capacitated VRP."""
+"""Решатель маршрутизации на OR-Tools для capacitated VRP."""
 
 from __future__ import annotations
 
@@ -9,7 +9,17 @@ from or_core.models import RoutingInput, RoutingOutput, VehicleRoute
 
 
 def solve_routing(data: RoutingInput) -> RoutingOutput:
-    """Solve a capacitated VRP and return route-level metrics."""
+    """Решает CVRP и возвращает маршруты и агрегированные метрики.
+
+    Что делает:
+    - строит `RoutingIndexManager` и `RoutingModel`;
+    - регистрирует callbacks расстояния и спроса;
+    - задаёт ограничения по ёмкости;
+    - извлекает маршруты из найденного решения.
+
+    Зачем:
+    - получить маршрутный план, согласованный с ограничениями спроса и вместимости.
+    """
     node_count = len(data.distance_matrix)
     vehicle_count = len(data.vehicle_capacities)
 
@@ -17,6 +27,7 @@ def solve_routing(data: RoutingInput) -> RoutingOutput:
     routing = pywrapcp.RoutingModel(manager)
 
     def distance_callback(from_index: int, to_index: int) -> int:
+        """Возвращает стоимость ребра (расстояние) между двумя индексами маршрутизатора."""
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
         return int(data.distance_matrix[from_node][to_node])
@@ -29,6 +40,7 @@ def solve_routing(data: RoutingInput) -> RoutingOutput:
         demand_map[node] = int(demand)
 
     def demand_callback(from_index: int) -> int:
+        """Возвращает спрос узла для ограничения ёмкости транспортного средства."""
         from_node = manager.IndexToNode(from_index)
         return demand_map[from_node]
 

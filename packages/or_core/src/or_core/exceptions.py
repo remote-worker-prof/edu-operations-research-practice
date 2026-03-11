@@ -1,25 +1,30 @@
-"""Domain-specific exceptions for OR pipeline failures."""
+"""Исключения доменной области OR-пайплайна.
+
+Классы ошибок сгруппированы по этапам, чтобы студент видел:
+- где именно произошёл сбой;
+- как сопоставлять тип исключения с этапом оптимизации.
+"""
 
 
 class ORPipelineError(RuntimeError):
-    """Base class for deterministic OR pipeline errors."""
+    """Базовое исключение для всех ошибок детерминированного OR-пайплайна."""
 
 
 class ScenarioValidationError(ORPipelineError):
-    """Raised when scenario input is invalid."""
+    """Ошибка валидации входного сценария или его структуры."""
 
 
 class ProductionOptimizationError(ORPipelineError):
-    """Raised when production linear program has no valid solution."""
+    """Ошибка этапа производства (LP не решился или вернул невалидный результат)."""
 
 
 class ShipmentAllocationError(ORPipelineError):
-    """Raised when min-cost flow allocation fails."""
+    """Ошибка этапа отгрузки (min-cost flow не нашёл допустимое решение)."""
 
 
 class AssignmentError(ORPipelineError):
-    """Raised when assignment solver input is invalid or infeasible."""
+    """Ошибка этапа назначения ресурсов (невалидный вход или infeasible)."""
 
 
 class RoutingError(ORPipelineError):
-    """Raised when routing solver cannot produce a route plan."""
+    """Ошибка маршрутизации (OR-Tools не построил корректный план)."""

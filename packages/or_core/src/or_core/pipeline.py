@@ -25,6 +25,12 @@ from or_core.solvers import (
 
 
 class ORGraphState(TypedDict, total=False):
+    """Состояние OR-подграфа между узлами вычислений.
+
+    Поля добавляются по мере прохождения этапов:
+    production -> shipment -> assignment -> routing -> report.
+    """
+
     input: ORPipelineInput
     production: ProductionOutput
     shipment: ShipmentOutput
@@ -35,10 +41,12 @@ class ORGraphState(TypedDict, total=False):
 
 
 def _append_trace(state: ORGraphState, step: str) -> list[str]:
+    """Добавляет имя шага в execution-trace без мутации входного списка."""
     return [*state.get("execution_trace", []), step]
 
 
 def _optimize_production(state: ORGraphState) -> ORGraphState:
+    """Узел 1: решает LP производства и записывает результат в state."""
     production = solve_production(state["input"].production)
     return {
         "production": production,
@@ -47,6 +55,7 @@ def _optimize_production(state: ORGraphState) -> ORGraphState:
 
 
 def _allocate_shipments(state: ORGraphState) -> ORGraphState:
+    """Узел 2: распределяет выпуск по клиентам через min-cost flow."""
     shipment = solve_shipment_allocation(
         template=state["input"].shipment_template,
         total_pallets=state["production"].total_pallets,
@@ -55,6 +64,7 @@ def _allocate_shipments(state: ORGraphState) -> ORGraphState:
 
 
 def _assign_resources(state: ORGraphState) -> ORGraphState:
+    """Узел 3: назначает ресурсы на сформированные shipment-задачи."""
     tasks = state["shipment"].tasks
     if not tasks:
         raise AssignmentError("No shipment tasks were produced, assignment cannot continue")
@@ -78,6 +88,7 @@ def _assign_resources(state: ORGraphState) -> ORGraphState:
 
 
 def _build_routes(state: ORGraphState) -> ORGraphState:
+    """Узел 4: строит маршруты на основе спроса и назначенных ресурсов."""
     client_delivery = state["shipment"].client_delivery
     client_order = state["input"].shipment_template.clients
     delivered_demands = [int(client_delivery.get(client, 0)) for client in client_order]
@@ -93,6 +104,7 @@ def _build_routes(state: ORGraphState) -> ORGraphState:
 
 
 def _finalize_report(state: ORGraphState) -> ORGraphState:
+    """Узел 5: собирает короткий финальный отчёт по всем этапам."""
     production = state["production"]
     shipment = state["shipment"]
     assignment = state["assignment"]
@@ -110,7 +122,13 @@ def _finalize_report(state: ORGraphState) -> ORGraphState:
 
 
 def build_or_graph() -> StateGraph:
-    """Собирает и компилирует детерминированный OR-подграф."""
+    """Собирает и компилирует детерминированный OR-подграф.
+
+    Что делает:
+    - регистрирует узлы для 4 этапов оптимизации и финального отчёта;
+    - задаёт фиксированный порядок рёбер;
+    - возвращает готовый к `invoke` граф.
+    """
     builder = StateGraph(ORGraphState)
     builder.add_node("optimize_production", _optimize_production)
     builder.add_node("allocate_shipments", _allocate_shipments)
@@ -132,10 +150,20 @@ class ORPipeline:
     """Публичный фасад OR-пайплайна для dialog-agent и API."""
 
     def __init__(self) -> None:
+        """Создаёт и кеширует скомпилированный OR-граф."""
         self._graph = build_or_graph()
 
     def run(self, validated_input: ORPipelineInput) -> ORResult:
-        """Запускает 4 OR-этапа и возвращает типизированный итоговый результат."""
+        """Запускает OR-пайплайн end-to-end.
+
+        Что делает:
+        - вызывает граф с валидированным входом;
+        - нормализует неожиданные ошибки в `ORPipelineError`;
+        - собирает итоговый `ORResult`.
+
+        Зачем:
+        - предоставляет единый API для всех потребителей OR-расчёта.
+        """
         try:
             output_state = self._graph.invoke({"input": validated_input, "execution_trace": []})
         except ORPipelineError:

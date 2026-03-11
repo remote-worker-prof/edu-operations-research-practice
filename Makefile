@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 PYTEST_ARGS ?=
 RUFF_ARGS ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -60,9 +60,12 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests only
 	$(UV) run --all-packages pytest tests/integration $(PYTEST_ARGS)
 
+docs-check: ## Validate baseline docstring coverage (module + public callables)
+	$(UV) run python scripts/check_doc_coverage.py
+
 check: lint test ## Fast quality gate (lint + tests)
 
-check-all: fmt-check check ## Strict quality gate (format + lint + tests)
+check-all: fmt-check check docs-check ## Strict quality gate (format + lint + tests + docs)
 
 require-docker: ## Verify docker availability
 	@if ! docker info >/dev/null 2>&1; then \

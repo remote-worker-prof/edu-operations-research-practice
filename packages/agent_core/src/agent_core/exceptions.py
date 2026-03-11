@@ -1,13 +1,18 @@
-"""Agent-specific exceptions."""
+"""Иерархия исключений для слоя `agent_core`.
+
+Эти типы позволяют отличать:
+- ошибки недоступности провайдера (конфигурация/окружение);
+- runtime-ошибки вызова модели.
+"""
 
 
 class AgentError(RuntimeError):
-    """Base error for dialog agent orchestration."""
+    """Базовое исключение для оркестрации диалога в `agent_core`."""
 
 
 class ModelUnavailableError(AgentError):
-    """Raised when a requested model alias cannot be used from current env."""
+    """Ошибка: выбранный alias модели недоступен в текущем окружении."""
 
 
 class ModelProviderError(AgentError):
-    """Raised when provider call fails at runtime."""
+    """Ошибка: провайдер модели вернул runtime-сбой во время запроса."""

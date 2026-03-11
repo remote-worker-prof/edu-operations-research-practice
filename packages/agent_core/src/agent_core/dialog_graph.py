@@ -20,6 +20,14 @@ from agent_core.models import AgentSession, ChatMessage, ScenarioParamState
 
 
 class DialogGraphState(TypedDict, total=False):
+    """Состояние узлов диалогового графа.
+
+    Поля:
+    - `session`: текущее состояние пользовательской сессии;
+    - `user_message`: входная реплика текущего шага;
+    - `assistant_message`: финальный ответ ассистента в этом шаге.
+    """
+
     session: AgentSession
     user_message: str
     assistant_message: str
@@ -27,6 +35,13 @@ class DialogGraphState(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class DialogGraphDeps:
+    """Явный контейнер зависимостей для узлов графа.
+
+    Зачем:
+    - узлы остаются чистыми и тестопригодными;
+    - зависимости передаются явно, а не через глобальные переменные.
+    """
+
     scenario_builder: ScenarioBuilder
     or_pipeline: ORPipeline
     llm_client: LLMClient
@@ -37,10 +52,12 @@ def _append_message(
     role: Literal["user", "assistant"],
     content: str,
 ) -> None:
+    """Добавляет реплику в историю сообщений сессии."""
     session.messages.append(ChatMessage(role=role, content=content))
 
 
 def _merge_unique(values: list[str], additions: list[str]) -> list[str]:
+    """Объединяет два списка без дубликатов, сохраняя исходный порядок."""
     merged = list(values)
     for item in additions:
         if item not in merged:
@@ -102,6 +119,7 @@ def _extract_params_node(
 
 
 def _route_after_extraction(state: DialogGraphState) -> str:
+    """Выбирает следующую ветку после extraction: ask/run/error."""
     session = state["session"]
     if session.errors:
         return "error"
@@ -152,6 +170,7 @@ def _run_or_subgraph_node(
 
 
 def _route_after_or(state: DialogGraphState) -> str:
+    """Маршрутизирует шаг после OR-пайплайна: explain или error."""
     return "error" if state["session"].errors else "explain"
 
 
@@ -195,7 +214,31 @@ def build_dialog_graph(
     or_pipeline: ORPipeline,
     llm_client: LLMClient,
 ):
-    """Собирает граф диалога: extract -> validate -> OR -> explain/error."""
+    """Собирает исполняемый LangGraph для одного хода диалога.
+
+    Что делает:
+    - создаёт state-граф с узлами extraction, валидации, OR-расчёта и объяснения;
+    - настраивает условные рёбра для веток `ask/run/error`.
+
+    Зачем:
+    - формализует бизнес-flow в виде детерминированного графа, который удобно тестировать.
+
+    Входы:
+    - `scenario_builder`: фабрика runtime-входа OR-пайплайна;
+    - `or_pipeline`: фасад детерминированных OR-расчётов;
+    - `llm_client`: клиент LLM для extraction и explanation.
+
+    Выходы:
+    - скомпилированный граф (`CompiledStateGraph`) с методом `.invoke(...)`.
+
+    Ошибки:
+    - узлы не бросают инфраструктурные ошибки наружу в штатном flow;
+    - ошибки расчёта переводятся в `session.errors` и ветку `respond_error`.
+
+    Пример:
+    - используется в `AgentService.__init__`, затем вызывается через
+      `self._dialog_graph.invoke(...)`.
+    """
     deps = DialogGraphDeps(
         scenario_builder=scenario_builder,
         or_pipeline=or_pipeline,

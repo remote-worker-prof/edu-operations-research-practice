@@ -1,4 +1,9 @@
-"""Explanation generation for OR results."""
+"""Генерация учебного текстового объяснения OR-результатов.
+
+Модуль реализует гибрид:
+- основной путь через LLM;
+- fallback-путь через детерминированный шаблон.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,14 @@ from agent_core.llm import LLMClient
 
 
 def fallback_explanation(result: ORResult) -> str:
-    """Deterministic explanation used when LLM provider is unavailable."""
+    """Строит детерминированное объяснение без обращения к LLM.
+
+    Что делает:
+    - конвертирует ключевые показатели OR-пайплайна в компактный читаемый текст.
+
+    Зачем:
+    - приложение продолжает быть полезным в учебной среде даже без доступного провайдера.
+    """
     assignment_rows = ", ".join(
         f"{pair.resource}->{pair.client} ({pair.assigned_volume})"
         for pair in result.assignment.pairs
@@ -29,7 +41,16 @@ def explain_result_for_student(
     model_alias: str,
     llm_client: LLMClient,
 ) -> tuple[str, list[str]]:
-    """Generate a student-friendly explanation with graceful fallback."""
+    """Генерирует объяснение результата для студента с безопасным fallback.
+
+    Что делает:
+    - формирует prompt с контекстом OR-результата;
+    - пытается вызвать LLM по выбранному alias;
+    - при ошибке возвращает fallback-текст и предупреждения.
+
+    Зачем:
+    - студент получает объяснение в любом случае, даже при недоступности внешнего API.
+    """
     warnings: list[str] = []
 
     prompt = [

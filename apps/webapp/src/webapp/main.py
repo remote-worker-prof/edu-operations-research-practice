@@ -1,4 +1,19 @@
-"""FastAPI application for the OR educational chat agent."""
+"""HTTP-слой учебного OR-AI приложения.
+
+Назначение модуля:
+- объявить FastAPI-приложение;
+- связать HTML/HTMX интерфейс с `AgentService`;
+- предоставить JSON API для интеграционных тестов и внешних клиентов.
+
+Роль в архитектуре:
+- это единственная точка входа web-слоя;
+- модуль не содержит бизнес-логики оптимизации и не вызывает OR-решатели напрямую.
+
+Главные зависимости:
+- `agent_core.service.AgentService` — оркестрация одного хода диалога;
+- `Jinja2Templates` — серверный рендеринг HTML;
+- `FastAPI` — маршрутизация HTTP-запросов.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +38,27 @@ MISSING_FIELD_LABELS = {
 
 
 def _render_context(*, request: Request, session) -> dict:
+    """Собирает единый контекст рендеринга для Jinja2-шаблонов.
+
+    Что делает:
+    - формирует словарь, который одинаково используется для `index.html` и `_workspace.html`.
+
+    Зачем:
+    - избежать дублирования одинаковых полей контекста в разных endpoint-функциях.
+
+    Входы:
+    - `request`: объект текущего HTTP-запроса FastAPI;
+    - `session`: текущее состояние сессии агента.
+
+    Выходы:
+    - словарь с данными для шаблонов (сессия, список моделей, человеко-понятные лейблы полей).
+
+    Ошибки:
+    - не генерирует исключения в штатном сценарии.
+
+    Пример:
+    - используется внутри `index()` и `chat_turn()` перед `TemplateResponse`.
+    """
     return {
         "request": request,
         "session": session,
@@ -34,11 +70,53 @@ def _render_context(*, request: Request, session) -> dict:
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
+    """Возвращает минимальную проверку доступности сервиса.
+
+    Что делает:
+    - отвечает фиксированным JSON `{"status": "ok"}`.
+
+    Зачем:
+    - используется для health-check в dev/docker и в автоматических проверках.
+
+    Входы:
+    - отсутствуют.
+
+    Выходы:
+    - словарь со статусом приложения.
+
+    Ошибки:
+    - в штатном режиме отсутствуют.
+
+    Пример:
+    - `GET /healthz` -> `{"status": "ok"}`.
+    """
     return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
+    """Рендерит стартовую страницу с новой пользовательской сессией.
+
+    Что делает:
+    - создаёт сессию через `AgentService`;
+    - подготавливает контекст интерфейса;
+    - возвращает HTML главной страницы.
+
+    Зачем:
+    - стартовый экран всегда должен иметь валидный `session_id` для следующих HTMX-запросов.
+
+    Входы:
+    - `request`: HTTP-запрос браузера.
+
+    Выходы:
+    - HTML-ответ с шаблоном `index.html`.
+
+    Ошибки:
+    - возможны только при системных проблемах шаблонизатора/инфраструктуры.
+
+    Пример:
+    - пользователь открывает `/` и видит чат + панель параметров.
+    """
     session = service.create_session()
     context = _render_context(request=request, session=session)
     return templates.TemplateResponse(request, "index.html", context)
@@ -51,6 +129,31 @@ def chat_turn(
     model_alias: str = Form(DEFAULT_MODEL_ALIAS),
     message: str = Form(...),
 ) -> HTMLResponse:
+    """Обрабатывает один ход диалога в HTMX-режиме и возвращает partial HTML.
+
+    Что делает:
+    - собирает входные данные формы;
+    - вызывает `AgentService.handle_turn`;
+    - рендерит обновлённый `_workspace.html`.
+
+    Зачем:
+    - HTMX позволяет обновлять только рабочую область интерфейса без полной перезагрузки страницы.
+
+    Входы:
+    - `request`: HTTP-запрос;
+    - `session_id`: идентификатор текущей сессии;
+    - `model_alias`: выбранный пользователем alias модели;
+    - `message`: текстовая реплика пользователя.
+
+    Выходы:
+    - HTML-фрагмент с обновлённым диалогом, ошибками/предупреждениями и результатами OR.
+
+    Ошибки:
+    - бизнес-ошибки не пробрасываются в HTTP 500, а попадают в `session.errors` и рендерятся в UI.
+
+    Пример:
+    - `POST /chat/turn` с формой -> обновлённый блок `#workspace`.
+    """
     result = service.handle_turn(
         ChatTurnRequest(
             session_id=session_id,
@@ -64,12 +167,56 @@ def chat_turn(
 
 @app.post("/api/chat/turn")
 def api_chat_turn(payload: ChatTurnRequest) -> dict:
+    """JSON endpoint для одного хода диалога.
+
+    Что делает:
+    - принимает сериализованный запрос `ChatTurnRequest`;
+    - запускает обработку в `AgentService`;
+    - возвращает полное состояние `TurnResult` в JSON.
+
+    Зачем:
+    - используется интеграционными тестами и внешними клиентами без HTML/HTMX.
+
+    Входы:
+    - `payload`: модель запроса с `session_id`, `model_alias`, `message`.
+
+    Выходы:
+    - JSON-словарь результата сессии и ответа ассистента.
+
+    Ошибки:
+    - валидационные ошибки входа обрабатываются FastAPI автоматически (422).
+
+    Пример:
+    - `POST /api/chat/turn` с JSON-пейлоадом из тестов в `tests/integration/test_api.py`.
+    """
     result = service.handle_turn(payload)
     return result.model_dump(mode="json")
 
 
 @app.get("/api/session/{session_id}")
 def api_get_session(session_id: str) -> dict:
+    """Возвращает состояние сессии по идентификатору.
+
+    Что делает:
+    - ищет сессию в in-memory хранилище;
+    - если сессия есть, сериализует её в JSON;
+    - если нет, возвращает HTTP 404.
+
+    Зачем:
+    - даёт возможность дебага/интеграций читать текущее состояние диалога.
+
+    Входы:
+    - `session_id`: идентификатор сессии.
+
+    Выходы:
+    - JSON-представление `AgentSession`.
+
+    Ошибки:
+    - `HTTPException(404)`, если сессия не найдена.
+
+    Пример:
+    - `GET /api/session/<id>` после нескольких ходов диалога.
+    """
     session = service.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")

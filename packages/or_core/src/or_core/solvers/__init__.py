@@ -1,4 +1,4 @@
-"""OR solver implementations."""
+"""Набор решателей OR-задач, используемых в детерминированном пайплайне."""
 
 from .assignment import solve_assignment
 from .production import solve_production

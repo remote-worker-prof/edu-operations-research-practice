@@ -1,4 +1,10 @@
-"""Typed contracts for OR pipeline inputs and outputs."""
+"""Доменные контракты входов/выходов для OR-пайплайна.
+
+Модуль задаёт все ключевые структуры данных:
+- что получает каждый этап оптимизации;
+- что возвращает каждый этап;
+- какие инварианты размерностей и ограничений проверяются заранее.
+"""
 
 from __future__ import annotations
 
@@ -8,14 +14,21 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ScenarioParams(BaseModel):
-    """User-provided multipliers that specialize the base educational scenario."""
+    """Параметры, которые пользователь вводит в диалоге для настройки сценария.
+
+    Эти коэффициенты масштабируют базовый seed-сценарий без изменения его структуры.
+    """
 
     demand_multiplier: float = Field(..., gt=0, le=2)
     resource_multiplier: float = Field(..., gt=0, le=2)
 
 
 class ProductionInput(BaseModel):
-    """Input for the production optimization LP solver."""
+    """Входные данные этапа производства (LP).
+
+    Модель описывает двухпродуктовую постановку: прибыль, ограничения ресурсов,
+    верхние границы спроса и коэффициенты перевода в паллеты.
+    """
 
     products: list[str] = Field(default_factory=lambda: ["A", "B"])
     profits: list[float] = Field(..., min_length=2, max_length=2)
@@ -26,6 +39,7 @@ class ProductionInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "ProductionInput":
+        """Проверяет фиксированную учебную размерность `2 x 2` для LP-постановки."""
         if len(self.products) != 2:
             msg = "ProductionInput requires exactly 2 products for the educational scenario"
             raise ValueError(msg)
@@ -36,7 +50,7 @@ class ProductionInput(BaseModel):
 
 
 class ProductionOutput(BaseModel):
-    """Result of production optimization."""
+    """Результат оптимизации производства: объёмы, objective и итог в паллетах."""
 
     quantities: dict[str, float]
     objective_value: float
@@ -45,7 +59,7 @@ class ProductionOutput(BaseModel):
 
 
 class ShipmentTemplateInput(BaseModel):
-    """Template input for shipment allocation."""
+    """Шаблон входа для этапа отгрузки (min-cost flow)."""
 
     warehouses: list[str] = Field(default_factory=lambda: ["W1", "W2"], min_length=2, max_length=2)
     warehouse_supply_ratio: list[float] = Field(..., min_length=2, max_length=2)
@@ -56,6 +70,7 @@ class ShipmentTemplateInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "ShipmentTemplateInput":
+        """Проверяет консистентность размерностей `warehouses x clients`."""
         client_count = len(self.clients)
         if len(self.client_demand) != client_count:
             msg = "client_demand length must match clients length"
@@ -75,7 +90,7 @@ class ShipmentTemplateInput(BaseModel):
 
 
 class ShipmentLeg(BaseModel):
-    """A single non-zero shipment leg from warehouse to client."""
+    """Одна ненулевая дуга отгрузки `склад -> клиент`."""
 
     warehouse: str
     client: str
@@ -84,7 +99,7 @@ class ShipmentLeg(BaseModel):
 
 
 class ShipmentTask(BaseModel):
-    """Aggregated client-level task used for assignment."""
+    """Агрегированная клиентская задача, которую получает этап назначения."""
 
     task_id: str
     client: str
@@ -92,7 +107,7 @@ class ShipmentTask(BaseModel):
 
 
 class ShipmentOutput(BaseModel):
-    """Result of min-cost flow shipment allocation."""
+    """Результат этапа отгрузки: поток, стоимость, задачи и недопоставки."""
 
     available_pallets: int
     total_dispatched: int
@@ -104,7 +119,7 @@ class ShipmentOutput(BaseModel):
 
 
 class AssignmentInput(BaseModel):
-    """Input to linear assignment solver."""
+    """Вход этапа назначения ресурсов на задачи."""
 
     resources: list[str] = Field(..., min_length=1)
     tasks: list[ShipmentTask] = Field(..., min_length=1)
@@ -112,6 +127,7 @@ class AssignmentInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "AssignmentInput":
+        """Проверяет размерность матрицы стоимости `resources x tasks`."""
         rows = len(self.resources)
         cols = len(self.tasks)
         if len(self.cost_matrix) != rows:
@@ -124,7 +140,7 @@ class AssignmentInput(BaseModel):
 
 
 class AssignmentPair(BaseModel):
-    """One resource-to-task assignment decision."""
+    """Одна пара назначения: какой ресурс обслуживает какую задачу."""
 
     resource: str
     task_id: str
@@ -134,14 +150,14 @@ class AssignmentPair(BaseModel):
 
 
 class AssignmentOutput(BaseModel):
-    """Result of assignment optimization."""
+    """Результат этапа назначения: список пар и суммарная стоимость."""
 
     total_cost: float
     pairs: list[AssignmentPair]
 
 
 class RoutingInput(BaseModel):
-    """Input for OR-Tools routing solver."""
+    """Вход этапа маршрутизации (OR-Tools CVRP)."""
 
     distance_matrix: list[list[int]] = Field(..., min_length=2)
     depot_index: int = 0
@@ -153,6 +169,7 @@ class RoutingInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "RoutingInput":
+        """Проверяет квадратность матрицы расстояний и согласованность массивов."""
         node_count = len(self.distance_matrix)
         if any(len(row) != node_count for row in self.distance_matrix):
             msg = "distance_matrix must be square"
@@ -170,7 +187,7 @@ class RoutingInput(BaseModel):
 
 
 class VehicleRoute(BaseModel):
-    """A solved route for one vehicle/resource."""
+    """Маршрут одной единицы транспорта (или ресурса)."""
 
     vehicle_id: int
     resource: str
@@ -180,7 +197,7 @@ class VehicleRoute(BaseModel):
 
 
 class RoutingOutput(BaseModel):
-    """Result of routing optimization."""
+    """Результат маршрутизации: маршруты и агрегированные метрики расстояния."""
 
     total_distance: int
     max_route_distance: int
@@ -188,7 +205,7 @@ class RoutingOutput(BaseModel):
 
 
 class ORPipelineInput(BaseModel):
-    """Runtime input for the full deterministic OR pipeline."""
+    """Полный runtime-вход для запуска всего OR-пайплайна."""
 
     production: ProductionInput
     shipment_template: ShipmentTemplateInput
@@ -198,6 +215,7 @@ class ORPipelineInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_assignment_template(self) -> "ORPipelineInput":
+        """Проверяет, что шаблон назначения согласован с количеством клиентов."""
         rows = len(self.assignment_resources)
         client_count = len(self.shipment_template.clients)
         if len(self.assignment_cost_matrix) != rows:
@@ -210,7 +228,7 @@ class ORPipelineInput(BaseModel):
 
 
 class ORResult(BaseModel):
-    """End-to-end output of all OR stages."""
+    """Итог полного расчёта: результаты 4 этапов + отчёт + trace."""
 
     production: ProductionOutput
     shipment: ShipmentOutput
@@ -221,7 +239,7 @@ class ORResult(BaseModel):
 
 
 class ScenarioSeed(BaseModel):
-    """Serialized base scenario stored in JSON."""
+    """Seed-сценарий в формате JSON, из которого строятся runtime-входы."""
 
     production: ProductionInput
     shipment: ShipmentTemplateInput

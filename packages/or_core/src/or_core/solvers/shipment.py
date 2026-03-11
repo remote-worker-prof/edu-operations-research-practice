@@ -1,4 +1,4 @@
-"""Shipment allocation solver using min-cost flow."""
+"""Решатель распределения отгрузок через min-cost flow."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from or_core.models import ShipmentLeg, ShipmentOutput, ShipmentTask, ShipmentTe
 
 
 def _distribute_total(total: int, ratios: list[float]) -> list[int]:
+    """Распределяет общий объём по складам пропорционально коэффициентам."""
     ratio_sum = sum(ratios)
     if ratio_sum <= 0:
         raise ShipmentAllocationError("warehouse_supply_ratio sum must be positive")
@@ -24,6 +25,7 @@ def _distribute_total(total: int, ratios: list[float]) -> list[int]:
 
 
 def _scale_demands(client_demand: list[int], available: int) -> list[int]:
+    """Масштабирует спрос клиентов под доступный объём без потери целого баланса."""
     total_demand = sum(client_demand)
     if total_demand == 0:
         return [0 for _ in client_demand]
@@ -43,7 +45,17 @@ def solve_shipment_allocation(
     template: ShipmentTemplateInput,
     total_pallets: int,
 ) -> ShipmentOutput:
-    """Allocate pallets via min-cost flow with capacity constraints."""
+    """Распределяет паллеты по клиентам с учётом стоимости и пропускных ограничений.
+
+    Что делает:
+    - ограничивает доступный объём отгрузки;
+    - строит ориентированный граф `warehouse -> client`;
+    - решает min-cost flow через NetworkX;
+    - формирует legs/tasks и итоговые метрики.
+
+    Зачем:
+    - передать на этап назначения не абстрактный спрос, а реалистичный план отгрузки.
+    """
     total_demand = sum(template.client_demand)
     available = max(0, min(int(total_pallets), total_demand))
     scaled_demands = _scale_demands(template.client_demand, available)

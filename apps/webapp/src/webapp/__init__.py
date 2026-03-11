@@ -1,1 +1,1 @@
-"""Web application package."""
+"""Пакет web-приложения (FastAPI + HTMX интерфейс)."""

@@ -1,4 +1,9 @@
-"""LiteLLM adapter with graceful fallback semantics."""
+"""Адаптер LiteLLM для вызова внешних языковых моделей.
+
+Назначение модуля:
+- скрыть детали провайдеров за alias-конфигурацией;
+- выдавать понятные доменные ошибки вместо низкоуровневых исключений SDK.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +18,19 @@ from agent_core.models import LLMResponse
 
 
 class LLMClient:
-    """Thin wrapper around LiteLLM for alias-based provider routing."""
+    """Клиент-обёртка над LiteLLM с маршрутизацией по alias.
+
+    Что делает:
+    - проверяет доступность выбранного провайдера;
+    - подставляет env-настройки (api_key/base_url/model);
+    - нормализует ответ в `LLMResponse`.
+
+    Зачем:
+    - чтобы диалоговый граф не зависел от деталей конкретного LLM-провайдера.
+    """
 
     def available_aliases(self) -> list[str]:
+        """Возвращает alias моделей, доступных в текущем окружении."""
         available: list[str] = []
         for alias in MODEL_ALIASES:
             if self._is_alias_available(alias):
@@ -29,7 +44,33 @@ class LLMClient:
         task_mode: str,
         temperature: float = 0,
     ) -> LLMResponse:
-        """Call LiteLLM for the requested alias or raise a descriptive error."""
+        """Выполняет запрос к модели по alias и возвращает нормализованный ответ.
+
+        Что делает:
+        - валидирует alias;
+        - проверяет доступность конфигурации провайдера;
+        - вызывает `litellm.completion(...)`;
+        - оборачивает ошибки в доменные исключения.
+
+        Зачем:
+        - единая точка интеграции с LLM для extraction/explanation.
+
+        Входы:
+        - `messages`: список сообщений в формате chat-completion;
+        - `model_alias`: техническое имя провайдера;
+        - `task_mode`: имя сценария вызова (для диагностики);
+        - `temperature`: параметр стохастичности генерации.
+
+        Выходы:
+        - `LLMResponse` с текстом ответа и метаданными модели.
+
+        Ошибки:
+        - `ModelUnavailableError`: alias недоступен в окружении;
+        - `ModelProviderError`: провайдер не ответил или вернул некорректный payload.
+
+        Пример:
+        - `llm_client.complete([...], "openai_default", "extract_user_intent_and_params")`.
+        """
         if model_alias not in MODEL_ALIASES:
             raise ModelUnavailableError(f"Unknown model alias: {model_alias}")
 
@@ -64,6 +105,7 @@ class LLMClient:
             ) from exc
 
     def _is_alias_available(self, model_alias: str) -> bool:
+        """Проверяет, можно ли использовать alias с текущими env-переменными."""
         config = MODEL_ALIASES[model_alias]
         if model_alias == "local_default":
             return bool(config.base_url_env and os.getenv(config.base_url_env))
@@ -75,6 +117,7 @@ class LLMClient:
         return True
 
     def _completion_kwargs(self, model_alias: str) -> dict[str, Any]:
+        """Готовит параметры `completion(...)` для конкретного alias."""
         config = MODEL_ALIASES[model_alias]
         kwargs: dict[str, Any] = {}
 

@@ -43,6 +43,7 @@ make docker-up
 make bd-check
 make bd-import
 make bd-flush
+make docs-check
 ```
 
 Полезные примеры с override-параметрами:
@@ -106,6 +107,19 @@ uv run --all-packages pytest
 ## Review Outcome
 
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
+- `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
+
+## Как читать код студенту
+
+Рекомендуемый порядок чтения, чтобы быстро восстановить полный flow системы:
+
+1. Начать с [apps/webapp/src/webapp/main.py](/home/sorcerer/Projects/edu-operations-research-practice/apps/webapp/src/webapp/main.py): какие есть endpoints и как создаётся `AgentService`.
+2. Перейти к [packages/agent_core/src/agent_core/service.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/service.py): как обрабатывается один ход диалога.
+3. Изучить [packages/agent_core/src/agent_core/dialog_graph.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/dialog_graph.py): логика ветвления `extract -> ask/run -> explain/error`.
+4. Посмотреть [packages/agent_core/src/agent_core/extractor.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/extractor.py) и [packages/agent_core/src/agent_core/explainer.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/explainer.py): extraction и fallback-пояснение.
+5. Затем прочитать [packages/or_core/src/or_core/pipeline.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/pipeline.py): последовательность 4 OR-этапов.
+6. Углубиться в солверы в [packages/or_core/src/or_core/solvers](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/solvers): `production`, `shipment`, `assignment`, `routing`.
+7. Закрепить понимание через интеграционные тесты в [tests/integration/test_api.py](/home/sorcerer/Projects/edu-operations-research-practice/tests/integration/test_api.py).
 
 ## Docker (опционально)
 

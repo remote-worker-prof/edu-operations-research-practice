@@ -1,4 +1,4 @@
-"""Resource assignment solver."""
+"""Решатель задачи назначения ресурсов на клиентские задачи."""
 
 from __future__ import annotations
 
@@ -10,7 +10,16 @@ from or_core.models import AssignmentInput, AssignmentOutput, AssignmentPair
 
 
 def solve_assignment(data: AssignmentInput) -> AssignmentOutput:
-    """Solve linear assignment with minimum total cost."""
+    """Решает задачу линейного назначения с минимальной суммарной стоимостью.
+
+    Что делает:
+    - проверяет базовую выполнимость (ресурсов не меньше задач);
+    - запускает алгоритм Венгера через `linear_sum_assignment`;
+    - формирует пары `resource -> task`.
+
+    Зачем:
+    - получить конкретное сопоставление ресурсов и задач перед маршрутизацией.
+    """
     if len(data.resources) < len(data.tasks):
         msg = "Number of resources must be >= number of tasks"
         raise AssignmentError(msg)

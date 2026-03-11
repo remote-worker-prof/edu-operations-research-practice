@@ -1,4 +1,4 @@
-"""Production LP solver."""
+"""Решатель линейного программирования для этапа производства."""
 
 from __future__ import annotations
 
@@ -10,7 +10,16 @@ from or_core.models import ProductionInput, ProductionOutput
 
 
 def solve_production(data: ProductionInput) -> ProductionOutput:
-    """Solve a 2-product LP maximizing total profit."""
+    """Решает LP-задачу для двух продуктов с максимизацией прибыли.
+
+    Что делает:
+    - формирует матрицы ограничений из `ProductionInput`;
+    - запускает `scipy.optimize.linprog`;
+    - преобразует решение в `ProductionOutput`.
+
+    Зачем:
+    - вычислить оптимальные объёмы выпуска и доступные паллеты для следующего этапа.
+    """
     c = -np.array(data.profits, dtype=float)
     a_ub = np.array(
         [

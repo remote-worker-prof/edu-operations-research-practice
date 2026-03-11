@@ -100,13 +100,22 @@
   - `Коэффициент спроса`;
   - `Коэффициент ресурсов`.
 
-## 7. Где смотреть код
+## 7. Рекомендуемый порядок чтения кода
 
-- Оркестрация диалога: `packages/agent_core/src/agent_core/dialog_graph.py`.
-- Извлечение параметров: `packages/agent_core/src/agent_core/extractor.py`.
-- OR-пайплайн: `packages/or_core/src/or_core/pipeline.py`.
-- Веб-эндпоинты: `apps/webapp/src/webapp/main.py`.
-- Интеграционные тесты: `tests/integration/test_api.py`, `tests/integration/test_dialog_graph.py`.
+1. `apps/webapp/src/webapp/main.py`:
+  - как HTTP-запросы превращаются в вызовы прикладного сервиса.
+2. `packages/agent_core/src/agent_core/service.py`:
+  - как организован lifecycle одного хода диалога.
+3. `packages/agent_core/src/agent_core/dialog_graph.py`:
+  - ветвление сценария `extract -> ask/run -> explain/error`.
+4. `packages/agent_core/src/agent_core/extractor.py` и `explainer.py`:
+  - extraction/fallback и генерация объяснения.
+5. `packages/or_core/src/or_core/pipeline.py`:
+  - последовательность 4 OR-этапов.
+6. `packages/or_core/src/or_core/solvers/*.py`:
+  - детали каждого математического решателя.
+7. `tests/integration/*.py`:
+  - как проверяется сквозной user flow и деградированные ветки.
 
 ## 8. Смежная документация
 

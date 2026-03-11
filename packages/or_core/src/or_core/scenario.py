@@ -1,4 +1,10 @@
-"""Scenario loading and parameterization utilities."""
+"""Загрузка и параметризация учебного OR-сценария.
+
+Назначение:
+- прочитать базовый JSON-сценарий;
+- масштабировать его под пользовательские коэффициенты;
+- вернуть строго валидированный `ORPipelineInput`.
+"""
 
 from __future__ import annotations
 
@@ -10,14 +16,21 @@ from or_core.models import ORPipelineInput, ScenarioParams, ScenarioSeed
 
 
 class ScenarioBuilder:
-    """Loads a base scenario and creates runtime OR pipeline input."""
+    """Строит runtime-вход OR-пайплайна из seed-сценария и коэффициентов пользователя.
+
+    Что делает:
+    - хранит валидированный seed в памяти;
+    - на каждый запрос формирует новый `ORPipelineInput`.
+    """
 
     def __init__(self, scenario_path: Path) -> None:
+        """Инициализирует builder и загружает seed-сценарий из файла."""
         self._scenario_path = scenario_path
         self._seed = self._load_seed(scenario_path)
 
     @staticmethod
     def _load_seed(path: Path) -> ScenarioSeed:
+        """Читает JSON и валидирует его как `ScenarioSeed`."""
         if not path.exists():
             raise ScenarioValidationError(f"Scenario file does not exist: {path}")
 
@@ -29,10 +42,20 @@ class ScenarioBuilder:
 
     @property
     def seed(self) -> ScenarioSeed:
+        """Возвращает загруженный seed-сценарий (read-only доступ)."""
         return self._seed
 
     def build(self, params: ScenarioParams) -> ORPipelineInput:
-        """Build a fully validated pipeline input from base scenario + user multipliers."""
+        """Собирает валидный runtime-вход из seed и коэффициентов пользователя.
+
+        Что делает:
+        - масштабирует ресурсные лимиты и спрос;
+        - синхронизирует шаблоны shipment/routing;
+        - возвращает типизированный `ORPipelineInput`.
+
+        Зачем:
+        - отделяет «данные сценария» от «данных конкретного расчёта».
+        """
         scaled_resource_limits = [
             round(limit * params.resource_multiplier, 3)
             for limit in self._seed.production.resource_limits

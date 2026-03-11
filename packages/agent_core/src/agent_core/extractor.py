@@ -1,4 +1,10 @@
-"""Извлечение параметров сценария из пользовательской реплики."""
+"""Извлечение коэффициентов сценария из естественного языка пользователя.
+
+Модуль использует гибридный подход:
+- сначала пытается получить структурированный JSON от LLM;
+- затем дополняет/страхует результат регулярными выражениями;
+- в конце валидирует числовые границы.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +21,7 @@ _NUMBER_PATTERN = re.compile(r"([0-9]+(?:[\.,][0-9]+)?)")
 
 
 def _to_float(value: str) -> float | None:
+    """Пытается преобразовать строку в float с поддержкой запятой."""
     try:
         return float(value.replace(",", "."))
     except ValueError:
@@ -22,6 +29,7 @@ def _to_float(value: str) -> float | None:
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any] | None:
+    """Извлекает JSON-объект из ответа LLM (включая fenced code block)."""
     raw = raw.strip()
     candidate = raw
 
@@ -41,6 +49,7 @@ def _parse_llm_json(raw: str) -> dict[str, Any] | None:
 
 
 def _extract_with_regex(message: str) -> dict[str, float]:
+    """Локально извлекает коэффициенты спроса/ресурсов регулярными выражениями."""
     normalized = message.lower()
     extracted: dict[str, float] = {}
 
@@ -89,6 +98,10 @@ def _parse_multiplier(
     raw_value: Any,
     errors: list[str],
 ) -> float | None:
+    """Преобразует и валидирует одно значение коэффициента.
+
+    Если значение некорректно, добавляет человеко-понятную ошибку в `errors`.
+    """
     if raw_value is None:
         return None
 
@@ -116,7 +129,32 @@ def extract_user_intent_and_params(
     model_alias: str,
     llm_client: LLMClient,
 ) -> ExtractionResult:
-    """Извлекает коэффициенты сценария из свободного текста пользователя."""
+    """Извлекает коэффициенты сценария из текста пользователя.
+
+    Что делает:
+    - отправляет extraction-prompt в LLM;
+    - разбирает JSON-ответ (если есть);
+    - применяет regex-парсинг как fallback;
+    - валидирует диапазоны коэффициентов `(0, 2]`.
+
+    Зачем:
+    - пользователь может писать свободным языком, а система всё равно получает
+      валидные числовые параметры для OR-пайплайна.
+
+    Входы:
+    - `message`: текст реплики пользователя;
+    - `model_alias`: выбранный alias модели;
+    - `llm_client`: клиент доступа к LLM.
+
+    Выходы:
+    - `ExtractionResult` с коэффициентами, предупреждениями и ошибками.
+
+    Ошибки:
+    - сетевые/провайдерные сбои не пробрасываются наружу, а превращаются в warnings.
+
+    Пример:
+    - `message=\"спрос 1.2, ресурс 0.9\"` -> `demand_multiplier=1.2`, `resource_multiplier=0.9`.
+    """
     warnings: list[str] = []
     errors: list[str] = []
     extracted: dict[str, Any] = {}
@@ -151,7 +189,7 @@ def extract_user_intent_and_params(
         warnings.append(str(exc))
 
     # Локальный парсер работает как страховка, если провайдер недоступен
-    # или вернул невалидный JSON.
+    # или вернул невалидный JSON. Это критично для устойчивости демо на занятии.
     regex_result = _extract_with_regex(message)
     for key, value in regex_result.items():
         extracted.setdefault(key, value)
