@@ -250,7 +250,7 @@ Host github-worker
 Тогда можно выбрать нужный ключ через remote:
 
 ```bash
-git remote set-url origin git@github-worker:algorithmic-planetoid/edu-operations-research-practice.git
+git remote set-url origin git@github-worker:remote-worker-prof/edu-operations-research-practice.git
 ```
 
 ## 14. Частые ошибки и их причины
