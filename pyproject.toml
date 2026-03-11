@@ -1,0 +1,30 @@
+[tool.uv.workspace]
+members = [
+  "apps/webapp",
+  "packages/agent_core",
+  "packages/or_core",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.3",
+  "pytest-cov>=6.0.0",
+  "httpx>=0.28.1",
+  "ruff>=0.11.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = [
+  "apps/webapp/src",
+  "packages/agent_core/src",
+  "packages/or_core/src",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
