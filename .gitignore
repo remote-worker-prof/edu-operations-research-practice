@@ -1,8 +1,1 @@
 00-initial-temp
-.venv/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.DS_Store
-.beads/daemon-error
