@@ -1,0 +1,29 @@
+{
+  "production": {
+    "products": ["A", "B"],
+    "profits": [40.0, 30.0],
+    "resource_matrix": [[2.0, 1.0], [1.0, 1.5]],
+    "resource_limits": [240.0, 180.0],
+    "demand_upper_bounds": [70.0, 80.0],
+    "pallet_factors": [1.0, 0.8]
+  },
+  "shipment": {
+    "warehouses": ["W1", "W2"],
+    "warehouse_supply_ratio": [0.55, 0.45],
+    "clients": ["C1", "C2", "C3"],
+    "client_demand": [42, 38, 40],
+    "cost_matrix": [[4.0, 6.0, 8.0], [5.0, 4.0, 3.0]],
+    "capacity_matrix": [[50, 45, 40], [40, 45, 50]]
+  },
+  "assignment_resources": ["truck_1", "truck_2", "truck_3"],
+  "assignment_cost_matrix": [[8.0, 6.0, 7.0], [5.0, 8.0, 6.0], [7.0, 5.0, 9.0]],
+  "routing": {
+    "distance_matrix": [[0, 10, 12, 8], [10, 0, 6, 7], [12, 6, 0, 9], [8, 7, 9, 0]],
+    "depot_index": 0,
+    "client_nodes": [1, 2, 3],
+    "client_demands": [42, 38, 40],
+    "vehicle_capacities": [55, 45, 45],
+    "resource_names": [],
+    "objective": "total_distance"
+  }
+}
