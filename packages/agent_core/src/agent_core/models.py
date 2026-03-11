@@ -8,6 +8,8 @@ from uuid import uuid4
 from or_core.models import ORResult
 from pydantic import BaseModel, Field
 
+from agent_core.config import DEFAULT_MODEL_ALIAS
+
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
@@ -36,12 +38,12 @@ class AgentSession(BaseModel):
     explanation: str | None = None
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    model_alias: str = "openai_default"
+    model_alias: str = DEFAULT_MODEL_ALIAS
 
 
 class ChatTurnRequest(BaseModel):
     session_id: str | None = None
-    model_alias: str = "openai_default"
+    model_alias: str = DEFAULT_MODEL_ALIAS
     message: str = Field(..., min_length=1)
 
 

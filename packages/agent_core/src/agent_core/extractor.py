@@ -1,12 +1,10 @@
-"""Parameter extraction for dialog turns."""
+"""Извлечение параметров сценария из пользовательской реплики."""
 
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
-
-from pydantic import ValidationError
 
 from agent_core.exceptions import ModelProviderError, ModelUnavailableError
 from agent_core.llm import LLMClient
@@ -85,12 +83,40 @@ def _extract_with_regex(message: str) -> dict[str, float]:
     return extracted
 
 
+def _parse_multiplier(
+    *,
+    field_name: str,
+    raw_value: Any,
+    errors: list[str],
+) -> float | None:
+    if raw_value is None:
+        return None
+
+    numeric: float | None
+    if isinstance(raw_value, (int, float)):
+        numeric = float(raw_value)
+    elif isinstance(raw_value, str):
+        numeric = _to_float(raw_value)
+    else:
+        numeric = None
+
+    if numeric is None:
+        errors.append(f"{field_name} должен быть числом в диапазоне (0, 2]")
+        return None
+
+    if not 0 < numeric <= 2:
+        errors.append(f"{field_name} должен быть в диапазоне (0, 2]")
+        return None
+
+    return numeric
+
+
 def extract_user_intent_and_params(
     message: str,
     model_alias: str,
     llm_client: LLMClient,
 ) -> ExtractionResult:
-    """Extract scenario multipliers from free-form user text."""
+    """Извлекает коэффициенты сценария из свободного текста пользователя."""
     warnings: list[str] = []
     errors: list[str] = []
     extracted: dict[str, Any] = {}
@@ -124,20 +150,26 @@ def extract_user_intent_and_params(
     except ModelProviderError as exc:
         warnings.append(str(exc))
 
+    # Локальный парсер работает как страховка, если провайдер недоступен
+    # или вернул невалидный JSON.
     regex_result = _extract_with_regex(message)
     for key, value in regex_result.items():
         extracted.setdefault(key, value)
 
-    try:
-        return ExtractionResult(
-            demand_multiplier=extracted.get("demand_multiplier"),
-            resource_multiplier=extracted.get("resource_multiplier"),
-            warnings=warnings,
-            errors=errors,
-        )
-    except ValidationError:
-        for field_name in ("demand_multiplier", "resource_multiplier"):
-            value = extracted.get(field_name)
-            if value is not None and not (0 < float(value) <= 2):
-                errors.append(f"{field_name} должен быть в диапазоне (0, 2]")
-        return ExtractionResult(warnings=warnings, errors=errors)
+    demand_multiplier = _parse_multiplier(
+        field_name="demand_multiplier",
+        raw_value=extracted.get("demand_multiplier"),
+        errors=errors,
+    )
+    resource_multiplier = _parse_multiplier(
+        field_name="resource_multiplier",
+        raw_value=extracted.get("resource_multiplier"),
+        errors=errors,
+    )
+
+    return ExtractionResult(
+        demand_multiplier=demand_multiplier,
+        resource_multiplier=resource_multiplier,
+        warnings=warnings,
+        errors=errors,
+    )

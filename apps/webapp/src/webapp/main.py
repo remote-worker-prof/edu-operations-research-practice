@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_core.config import DEFAULT_MODEL_ALIAS, model_aliases, model_options
 from agent_core.models import ChatTurnRequest
 from agent_core.service import AgentService
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -15,6 +16,21 @@ service = AgentService()
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
+MISSING_FIELD_LABELS = {
+    "demand_multiplier": "Коэффициент спроса",
+    "resource_multiplier": "Коэффициент ресурсов",
+}
+
+
+def _render_context(*, request: Request, session) -> dict:
+    return {
+        "request": request,
+        "session": session,
+        "model_aliases": model_aliases(),
+        "model_options": model_options(),
+        "missing_field_labels": MISSING_FIELD_LABELS,
+    }
+
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
@@ -24,11 +40,7 @@ def healthz() -> dict[str, str]:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     session = service.create_session()
-    context = {
-        "request": request,
-        "session": session,
-        "model_aliases": ["openai_default", "gigachat_default", "local_default"],
-    }
+    context = _render_context(request=request, session=session)
     return templates.TemplateResponse(request, "index.html", context)
 
 
@@ -36,7 +48,7 @@ def index(request: Request) -> HTMLResponse:
 def chat_turn(
     request: Request,
     session_id: str = Form(...),
-    model_alias: str = Form("openai_default"),
+    model_alias: str = Form(DEFAULT_MODEL_ALIAS),
     message: str = Form(...),
 ) -> HTMLResponse:
     result = service.handle_turn(
@@ -46,11 +58,7 @@ def chat_turn(
             message=message,
         )
     )
-    context = {
-        "request": request,
-        "session": result.session,
-        "model_aliases": ["openai_default", "gigachat_default", "local_default"],
-    }
+    context = _render_context(request=request, session=result.session)
     return templates.TemplateResponse(request, "_workspace.html", context)
 
 

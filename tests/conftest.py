@@ -18,9 +18,7 @@ def scenario_builder(scenario_path: Path) -> ScenarioBuilder:
 
 @pytest.fixture()
 def runtime_input(scenario_builder: ScenarioBuilder):
-    return scenario_builder.build(
-        ScenarioParams(demand_multiplier=1.0, resource_multiplier=1.0)
-    )
+    return scenario_builder.build(ScenarioParams(demand_multiplier=1.0, resource_multiplier=1.0))
 
 
 @pytest.fixture()

@@ -1,16 +1,16 @@
 <div id="workspace" class="layout">
   <section class="panel">
     <h2>Параметры и результаты</h2>
-    <div class="kv"><span>session_id</span><strong>{{ session.session_id }}</strong></div>
-    <div class="kv"><span>Коэф. спроса</span><strong>{{ session.scenario_params.demand_multiplier if session.scenario_params.demand_multiplier is not none else "-" }}</strong></div>
-    <div class="kv"><span>Коэф. ресурсов</span><strong>{{ session.scenario_params.resource_multiplier if session.scenario_params.resource_multiplier is not none else "-" }}</strong></div>
+    <div class="kv"><span>Сессия</span><strong>{{ session.session_id }}</strong></div>
+    <div class="kv"><span>Коэффициент спроса</span><strong>{{ session.scenario_params.demand_multiplier if session.scenario_params.demand_multiplier is not none else "-" }}</strong></div>
+    <div class="kv"><span>Коэффициент ресурсов</span><strong>{{ session.scenario_params.resource_multiplier if session.scenario_params.resource_multiplier is not none else "-" }}</strong></div>
 
     {% if session.missing_fields %}
       <div class="card">
         <strong>Не хватает параметров:</strong>
         <div class="stack">
           {% for field in session.missing_fields %}
-            <span class="chip">{{ field }}</span>
+            <span class="chip">{{ missing_field_labels.get(field, field) }}</span>
           {% endfor %}
         </div>
       </div>
@@ -83,8 +83,10 @@
       <input type="hidden" name="session_id" value="{{ session.session_id }}" />
       <div class="row">
         <select name="model_alias">
-          {% for alias in model_aliases %}
-            <option value="{{ alias }}" {% if alias == session.model_alias %}selected{% endif %}>{{ alias }}</option>
+          {% for option in model_options %}
+            <option value="{{ option.alias }}" {% if option.alias == session.model_alias %}selected{% endif %}>
+              {{ option.label }}
+            </option>
           {% endfor %}
         </select>
         <input

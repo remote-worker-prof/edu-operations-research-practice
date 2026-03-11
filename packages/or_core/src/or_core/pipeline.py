@@ -1,4 +1,4 @@
-"""Deterministic OR pipeline built as a LangGraph subgraph."""
+"""Детерминированный OR-пайплайн, собранный как подграф LangGraph."""
 
 from __future__ import annotations
 
@@ -62,6 +62,8 @@ def _assign_resources(state: ORGraphState) -> ORGraphState:
     clients = state["input"].shipment_template.clients
     client_to_idx = {client: idx for idx, client in enumerate(clients)}
 
+    # Матрица стоимости в input задаётся по всем клиентам, а assignment
+    # работает по фактически созданным shipment tasks. Здесь делаем проекцию.
     reduced_cost_matrix: list[list[float]] = []
     for row in state["input"].assignment_cost_matrix:
         reduced_cost_matrix.append([row[client_to_idx[task.client]] for task in tasks])
@@ -108,7 +110,7 @@ def _finalize_report(state: ORGraphState) -> ORGraphState:
 
 
 def build_or_graph() -> StateGraph:
-    """Build and compile deterministic OR subgraph."""
+    """Собирает и компилирует детерминированный OR-подграф."""
     builder = StateGraph(ORGraphState)
     builder.add_node("optimize_production", _optimize_production)
     builder.add_node("allocate_shipments", _allocate_shipments)
@@ -127,13 +129,13 @@ def build_or_graph() -> StateGraph:
 
 
 class ORPipeline:
-    """Public pipeline facade used by the dialog agent and API."""
+    """Публичный фасад OR-пайплайна для dialog-agent и API."""
 
     def __init__(self) -> None:
         self._graph = build_or_graph()
 
     def run(self, validated_input: ORPipelineInput) -> ORResult:
-        """Run all four OR stages and return typed final result."""
+        """Запускает 4 OR-этапа и возвращает типизированный итоговый результат."""
         try:
             output_state = self._graph.invoke({"input": validated_input, "execution_trace": []})
         except ORPipelineError:

@@ -7,7 +7,7 @@ from pathlib import Path
 from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioBuilder
 
-from agent_core.config import default_scenario_path
+from agent_core.config import DEFAULT_MODEL_ALIAS, default_scenario_path
 from agent_core.dialog_graph import build_dialog_graph
 from agent_core.llm import LLMClient
 from agent_core.models import AgentSession, ChatTurnRequest, TurnResult
@@ -38,7 +38,7 @@ class AgentService:
     def store(self) -> InMemorySessionStore:
         return self._store
 
-    def create_session(self, model_alias: str = "openai_default") -> AgentSession:
+    def create_session(self, model_alias: str = DEFAULT_MODEL_ALIAS) -> AgentSession:
         session = self._store.create()
         session.model_alias = model_alias
         self._store.save(session)

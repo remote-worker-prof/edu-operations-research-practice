@@ -73,9 +73,7 @@ def solve_routing(data: RoutingInput) -> RoutingOutput:
             all_visited_nodes.add(to_node)
 
         resource = (
-            data.resource_names[vehicle_id]
-            if data.resource_names
-            else f"vehicle_{vehicle_id + 1}"
+            data.resource_names[vehicle_id] if data.resource_names else f"vehicle_{vehicle_id + 1}"
         )
 
         routes.append(
