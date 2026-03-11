@@ -40,6 +40,9 @@ make dev
 make check
 make check-all
 make docker-up
+make bd-check
+make bd-import
+make bd-flush
 ```
 
 Полезные примеры с override-параметрами:
@@ -48,6 +51,25 @@ make docker-up
 make dev HOST=0.0.0.0 PORT=8080
 make test PYTEST_ARGS='-k dialog -vv'
 ```
+
+## Beads Safe Workflow
+
+В этом репозитории beads работает в **flush-only** режиме.
+
+- Не используйте raw `bd sync`.
+- Версия `bd` должна быть `>= 0.59.0`.
+- На старте сессии:
+  ```bash
+  git pull --rebase
+  make bd-import
+  ```
+- Перед commit/push:
+  ```bash
+  make bd-session-close
+  git add -A
+  git commit -m "[eorp-<id>] ..."
+  git push
+  ```
 
 ## Тесты
 

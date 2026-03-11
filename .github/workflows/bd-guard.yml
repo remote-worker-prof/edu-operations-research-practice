@@ -1,0 +1,31 @@
+name: bd-guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq ripgrep
+
+      - name: Install bd 0.59.0
+        run: |
+          tmpdir="$(mktemp -d)"
+          curl -fsSL -o "$tmpdir/beads.tar.gz" \
+            https://github.com/steveyegge/beads/releases/download/v0.59.0/beads_0.59.0_linux_amd64.tar.gz
+          tar -xzf "$tmpdir/beads.tar.gz" -C "$tmpdir"
+          sudo install -m 0755 "$tmpdir/bd" /usr/local/bin/bd
+          bd version
+
+      - name: Bootstrap local beads DB from JSONL (if needed)
+        run: ./scripts/bd_import_safe.sh
+
+      - name: Run bd policy check
+        run: ./scripts/bd_policy_check.sh

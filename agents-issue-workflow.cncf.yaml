@@ -2,7 +2,7 @@ id: agents-issue-workflow
 version: "1.0"
 specVersion: "0.8"
 name: "Agent Issues + Git + Beads Workflow"
-description: "Strict order for issues, work, stage, commit, and sync. Use beads issue prefix eorp (commit header: [eorp-<id>] <type>(P#): <title>; body: description; file list appended)."
+description: "Strict order for issues, work, stage, commit, beads flush-only export, push, and verification. Use beads issue prefix eorp (commit header: [eorp-<id>] <type>(P#): <title>; body: description; file list appended)."
 start: createIssue
 states:
   - name: createIssue
@@ -57,14 +57,30 @@ states:
       - name: bdClose
         functionRef:
           refName: bdClose
-    transition: syncBeads
+    transition: flushBeads
 
-  - name: syncBeads
+  - name: flushBeads
     type: operation
     actions:
-      - name: bdSync
+      - name: bdFlushSafe
         functionRef:
-          refName: bdSync
+          refName: bdFlushSafe
+    transition: pushChanges
+
+  - name: pushChanges
+    type: operation
+    actions:
+      - name: gitPush
+        functionRef:
+          refName: gitPush
+    transition: verifyPush
+
+  - name: verifyPush
+    type: operation
+    actions:
+      - name: gitVerify
+        functionRef:
+          refName: gitVerify
     end: true
 
 functions:
@@ -84,5 +100,9 @@ functions:
     operation: "shell:ID=<issue_id>; TYPE=<issue_type>; PRIO=<issue_priority>; TITLE=<issue_title>; DESC=<issue_description>; HEADER=\"[$ID] $TYPE($PRIO): $TITLE\"; FILES=$(git diff --cached --name-status | awk '{code=$1; from=$2; to=$3; status=\"изменён\"; if (code ~ /^A/) status=\"создан\"; else if (code ~ /^D/) status=\"удалён\"; else if (code ~ /^R/) { status=\"переименован\"; printf \"- %s %s -> %s (%s)\\n\", code, from, to, status; next } else if (code ~ /^C/) { status=\"скопирован\"; printf \"- %s %s -> %s (%s)\\n\", code, from, to, status; next } printf \"- %s %s (%s)\\n\", code, from, status }'); printf \"%s\\n\\n%s\\n\\nИзменения:\\n%s\\n\" \"$HEADER\" \"$DESC\" \"$FILES\" | git commit -F -"
   - name: bdClose
     operation: "shell:bd close <eorp-id>"
-  - name: bdSync
-    operation: "shell:bd sync"
+  - name: bdFlushSafe
+    operation: "shell:make bd-flush"
+  - name: gitPush
+    operation: "shell:git push"
+  - name: gitVerify
+    operation: "shell:line=$(git status -sb | head -n1); echo \"$line\"; [[ \"$line\" != *ahead* && \"$line\" != *behind* ]]"

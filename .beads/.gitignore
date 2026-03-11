@@ -5,6 +5,9 @@ dolt-access.lock
 # Runtime files
 bd.sock
 bd.sock.startlock
+daemon.lock
+daemon.log
+daemon.pid
 sync-state.json
 last-touched
 
@@ -33,6 +36,7 @@ dolt-server.lock
 dolt-server.port
 dolt-server.activity
 dolt-monitor.pid
+dolt-monitor.pid.lock
 
 # Backup data (auto-exported JSONL, local-only)
 backup/

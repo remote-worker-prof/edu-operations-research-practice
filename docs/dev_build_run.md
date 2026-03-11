@@ -54,6 +54,35 @@ make check-all
 `make check` запускает быстрый baseline (`ruff check` + `pytest`).
 `make check-all` дополнительно требует чистое форматирование (`ruff format --check`).
 
+## 1.1 Beads safe workflow (обязательно)
+
+Для этого репозитория включён safe-контракт beads:
+
+- raw `bd sync` не используется;
+- используется flush-only экспорт `.beads/issues.jsonl`;
+- минимальная версия `bd`: `0.59.0`.
+
+Команды:
+
+```bash
+make bd-check
+make bd-import
+make bd-flush
+make bd-session-close
+```
+
+Рекомендуемая последовательность:
+
+```bash
+git pull --rebase
+make bd-import
+# ... работа ...
+make bd-session-close
+git add -A
+git commit -m "[eorp-<id>] ..."
+git push
+```
+
 ## 2. Docker dev
 
 ### Требования
@@ -124,3 +153,23 @@ make doctor
 ```bash
 make clean
 ```
+
+## 5. Recovery playbook (beads)
+
+Если после beads-команды вы видите массовые staged `A/D` в `git status`:
+
+1. Зафиксируйте текущее состояние отдельным recovery-коммитом (без потери файлов).
+2. Убедитесь, что установлен `bd >= 0.59.0`.
+3. Проверьте политику:
+   ```bash
+   make bd-check
+   ```
+4. При повреждённой/недоступной beads-базе восстановите из JSONL:
+   ```bash
+   make bd-recover-from-jsonl
+   ```
+5. Снова выполните:
+   ```bash
+   make bd-check
+   make bd-flush
+   ```

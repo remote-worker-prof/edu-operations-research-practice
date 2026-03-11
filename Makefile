@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 PYTEST_ARGS ?=
 RUFF_ARGS ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration check check-all require-docker docker-up docker-down docker-logs clean
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -84,3 +84,18 @@ clean: ## Remove caches only (safe cleanup)
 	rm -rf .pytest_cache .ruff_cache
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 	find . -type f -name '*.pyc' -delete
+
+bd-check: ## Validate safe beads policy (version/config/doctor)
+	./scripts/bd_policy_check.sh
+
+bd-import: ## Validate or bootstrap beads DB availability (safe start step)
+	./scripts/bd_import_safe.sh
+
+bd-flush: ## Export beads issues to .beads/issues.jsonl with safety checks
+	./scripts/bd_flush_safe.sh
+
+bd-session-close: ## Run beads pre-push safety sequence (check + flush)
+	./scripts/bd_session_close.sh
+
+bd-recover-from-jsonl: ## Rebuild beads DB from .beads/issues.jsonl (recovery)
+	./scripts/bd_recover_from_jsonl.sh

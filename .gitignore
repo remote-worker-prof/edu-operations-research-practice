@@ -6,7 +6,6 @@ __pycache__/
 .mypy_cache/
 .DS_Store
 .beads/daemon-error
-
 # Dolt database files (added by bd init)
 .dolt/
 *.db
