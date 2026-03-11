@@ -30,6 +30,25 @@ uv run --package webapp uvicorn webapp.main:app --reload
 
 Открыть в браузере: `http://127.0.0.1:8000`
 
+## Makefile
+
+Единая точка входа для типовых задач разработки:
+
+```bash
+make install
+make dev
+make check
+make check-all
+make docker-up
+```
+
+Полезные примеры с override-параметрами:
+
+```bash
+make dev HOST=0.0.0.0 PORT=8080
+make test PYTEST_ARGS='-k dialog -vv'
+```
+
 ## Тесты
 
 ```bash
