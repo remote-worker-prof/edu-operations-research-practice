@@ -18,7 +18,7 @@
 - `packages/or_core` — доменные модели и OR-солверы
 - `data/scenarios` — учебные сценарии
 - `tests` — unit/integration/API/E2E-light тесты
-- `docs` — архитектурные заметки
+- `docs` — архитектура, запуск и итоговые заметки по quality/remediation
 - `00-initial-temp/` — черновики (игнорируются Git)
 
 ## Быстрый старт
@@ -102,6 +102,10 @@ uv run --all-packages pytest
 - `POST /api/chat/turn` — JSON endpoint
 - `GET /api/session/{session_id}` — состояние сессии
 - `GET /healthz` — health check
+
+## Review Outcome
+
+- `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 
 ## Docker (опционально)
 
