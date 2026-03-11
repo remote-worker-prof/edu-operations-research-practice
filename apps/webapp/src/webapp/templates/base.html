@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}OR AI Agent Demo{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+      :root {
+        --bg: #f3f7f4;
+        --card: #ffffff;
+        --ink: #11242f;
+        --muted: #56707f;
+        --accent: #0f6e5b;
+        --accent-soft: #def2eb;
+        --warn: #8c4f0a;
+        --error: #9f2432;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Manrope", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 0% 0%, #d4efe6 0%, transparent 30%),
+          radial-gradient(circle at 100% 100%, #ffe8c9 0%, transparent 35%),
+          var(--bg);
+      }
+      .page {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .title {
+        margin: 0 0 14px;
+        font-size: 1.8rem;
+        letter-spacing: 0.01em;
+      }
+      .subtitle {
+        margin: 0 0 20px;
+        color: var(--muted);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 36%) minmax(320px, 64%);
+        gap: 16px;
+      }
+      .panel {
+        background: var(--card);
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(23, 43, 54, 0.08);
+      }
+      .panel h2 {
+        margin-top: 0;
+        font-size: 1.1rem;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px;
+        margin-bottom: 10px;
+        color: var(--muted);
+      }
+      .kv strong {
+        color: var(--ink);
+      }
+      .chip {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        background: var(--accent-soft);
+        color: var(--accent);
+        margin-right: 6px;
+        margin-bottom: 6px;
+      }
+      .chat-thread {
+        min-height: 360px;
+        max-height: 480px;
+        overflow-y: auto;
+        padding: 10px;
+        border: 1px solid #d6e2e6;
+        border-radius: 12px;
+        background: #fbfdfc;
+      }
+      .msg {
+        margin: 8px 0;
+        padding: 10px 12px;
+        border-radius: 12px;
+        max-width: 90%;
+        line-height: 1.35;
+        white-space: pre-wrap;
+      }
+      .msg.user {
+        margin-left: auto;
+        background: #d9ecff;
+      }
+      .msg.assistant {
+        margin-right: auto;
+        background: #eef4f8;
+      }
+      .stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      form {
+        margin-top: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      select,
+      input,
+      button {
+        border: 1px solid #c3d4da;
+        border-radius: 10px;
+        padding: 10px;
+        font: inherit;
+      }
+      input[type="text"] {
+        flex: 1;
+      }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        cursor: pointer;
+      }
+      .card {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: #f7fbfd;
+        border: 1px solid #dbe8ed;
+      }
+      .warn {
+        color: var(--warn);
+        font-size: 0.9rem;
+      }
+      .error {
+        color: var(--error);
+        font-size: 0.9rem;
+      }
+      @media (max-width: 920px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .chat-thread {
+          min-height: 240px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>
