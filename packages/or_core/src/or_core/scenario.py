@@ -16,7 +16,7 @@ from or_core.models import (
     AssignmentTemplateInput,
     ORPipelineInput,
     ProductionInput,
-    RoutingInput,
+    RoutingTemplateInput,
     ScenarioDraft,
     ScenarioSeed,
     ShipmentTemplateInput,
@@ -65,7 +65,7 @@ class ScenarioAssembler:
         production = ProductionInput.model_validate(draft.production)
         shipment = ShipmentTemplateInput.model_validate(draft.shipment)
         assignment = AssignmentTemplateInput.model_validate(draft.assignment)
-        routing = RoutingInput.model_validate(draft.routing)
+        routing = RoutingTemplateInput.model_validate(draft.routing)
 
         try:
             return ORPipelineInput(
@@ -136,13 +136,12 @@ class ScenarioAssembler:
 
     def _validate_routing_payload(self, payload: dict[str, Any]) -> list[str]:
         return self._collect_validation_errors(
-            parser=RoutingInput,
+            parser=RoutingTemplateInput,
             payload=payload,
             required_fields=[
                 "distance_matrix",
                 "depot_index",
                 "client_nodes",
-                "client_demands",
                 "vehicle_capacities",
             ],
         )

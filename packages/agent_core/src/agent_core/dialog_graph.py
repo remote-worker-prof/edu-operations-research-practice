@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal, TypedDict
+from typing import Callable, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from or_core.exceptions import ORPipelineError, ScenarioValidationError
@@ -15,13 +15,20 @@ from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 from agent_core.explainer import explain_result_for_student
 from agent_core.input_parser import parse_user_command
 from agent_core.llm import LLMClient
-from agent_core.models import STAGE_ORDER, AgentSession, ChatMessage, StageName
+from agent_core.models import STAGE_ORDER, AgentSession, ChatMessage, CommandResult, StageName
 
 STAGE_LABELS: dict[StageName, str] = {
     "production": "Production",
     "shipment": "Shipment",
     "assignment": "Assignment",
     "routing": "Routing",
+}
+
+_STAGE_DRAFT_FIELDS: dict[StageName, str] = {
+    "production": "production",
+    "shipment": "shipment",
+    "assignment": "assignment",
+    "routing": "routing",
 }
 
 _STAGE_EXAMPLES: dict[StageName, str] = {
@@ -38,7 +45,7 @@ _STAGE_EXAMPLES: dict[StageName, str] = {
     "assignment": '{"resources":["truck_1","truck_2"],"cost_matrix":[[8,6,7],[5,8,6]]}',
     "routing": (
         '{"distance_matrix":[[0,10,12],[10,0,6],[12,6,0]],'
-        '"depot_index":0,"client_nodes":[1,2],"client_demands":[42,38],'
+        '"depot_index":0,"client_nodes":[1,2],'
         '"vehicle_capacities":[55,45]}'
     ),
 }
@@ -63,6 +70,15 @@ class DialogGraphDeps:
     llm_client: LLMClient
 
 
+@dataclass(frozen=True)
+class CollectOutcome:
+    """Результат обработки одной команды интерактивного ввода."""
+
+    assistant_message: str = ""
+    draft_changed: bool = False
+    should_run: bool = False
+
+
 def _append_message(
     session: AgentSession,
     role: Literal["user", "assistant"],
@@ -85,7 +101,7 @@ def _next_missing_stage(session: AgentSession) -> StageName | None:
     """Возвращает первый незаполненный stage в порядке `STAGE_ORDER`."""
     for stage in STAGE_ORDER:
         if stage in session.missing_fields:
-            return stage  # type: ignore[return-value]
+            return stage
     return None
 
 
@@ -96,25 +112,12 @@ def _stage_prompt(stage: StageName) -> str:
 
 def _apply_stage_payload(session: AgentSession, stage: StageName, payload: dict) -> None:
     """Записывает payload в нужный раздел draft по имени stage."""
-    if stage == "production":
-        session.scenario_draft.production = payload
-    elif stage == "shipment":
-        session.scenario_draft.shipment = payload
-    elif stage == "assignment":
-        session.scenario_draft.assignment = payload
-    elif stage == "routing":
-        session.scenario_draft.routing = payload
+    setattr(session.scenario_draft, _STAGE_DRAFT_FIELDS[stage], payload)
 
 
 def _stage_payload_ref(session: AgentSession, stage: StageName) -> dict:
     """Возвращает текущий payload выбранного stage из draft."""
-    if stage == "production":
-        return session.scenario_draft.production
-    if stage == "shipment":
-        return session.scenario_draft.shipment
-    if stage == "assignment":
-        return session.scenario_draft.assignment
-    return session.scenario_draft.routing
+    return getattr(session.scenario_draft, _STAGE_DRAFT_FIELDS[stage])
 
 
 def _set_nested(payload: dict, path: str, value) -> None:
@@ -148,6 +151,226 @@ def _recompute_collection_state(
         session.collection_state.current_stage = _next_missing_stage(session)
 
 
+def _pending_question(session: AgentSession) -> str:
+    """Возвращает следующий системный вопрос пользователю по текущему состоянию."""
+    if session.collection_state.ready_to_run:
+        return "Входы валидны. Для запуска расчёта отправьте `run`."
+    stage = _next_missing_stage(session)
+    if stage is None:
+        return "Исправьте ошибки в текущем вводе и повторите `run`."
+    return _stage_prompt(stage)
+
+
+def _invalidate_cached_result(session: AgentSession) -> None:
+    """Сбрасывает кэш результата при изменении входов."""
+    session.or_result = None
+    session.explanation = None
+
+
+def _handle_start(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del result, deps
+    session.scenario_draft = session.scenario_draft.__class__()
+    session.collection_state.current_stage = "production"
+    return CollectOutcome(assistant_message=_stage_prompt("production"), draft_changed=True)
+
+
+def _handle_reset(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del result, deps
+    session.scenario_draft = session.scenario_draft.__class__()
+    session.collection_state.current_stage = "production"
+    session.scenario_draft.preset_ref = None
+    return CollectOutcome(
+        assistant_message="Черновик сброшен. " + _stage_prompt("production"),
+        draft_changed=True,
+    )
+
+
+def _handle_load_preset(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    if result.preset_ref != "demo":
+        return CollectOutcome(assistant_message="Ошибка ввода: неизвестный preset.")
+    session.scenario_draft = deps.preset_loader.load_demo_draft()
+    return CollectOutcome(
+        assistant_message=(
+            "Загружен demo preset. Проверьте ввод командой `show input` и запустите `run`."
+        ),
+        draft_changed=True,
+    )
+
+
+def _handle_edit_stage(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del deps
+    if result.stage is None:
+        return CollectOutcome(assistant_message="Ошибка ввода: не указан stage для edit.")
+    session.collection_state.current_stage = result.stage
+    return CollectOutcome(assistant_message=_stage_prompt(result.stage))
+
+
+def _handle_stage_json(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del deps
+    if result.patch is None:
+        return CollectOutcome(assistant_message="Ошибка ввода: не удалось распознать JSON patch.")
+    if result.patch.payload is None:
+        return CollectOutcome(assistant_message="Ошибка ввода: JSON patch должен быть объектом.")
+    _apply_stage_payload(session, result.patch.stage, result.patch.payload)
+    session.collection_state.current_stage = result.patch.stage
+    return CollectOutcome(
+        assistant_message=f"Stage {STAGE_LABELS[result.patch.stage]} обновлён JSON-объектом.",
+        draft_changed=True,
+    )
+
+
+def _handle_set_field(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del deps
+    if result.patch is None:
+        return CollectOutcome(assistant_message="Ошибка ввода: отсутствует patch для set.")
+    if result.patch.path is None:
+        return CollectOutcome(assistant_message="Ошибка ввода: отсутствует путь поля для set.")
+    payload = dict(_stage_payload_ref(session, result.patch.stage))
+    _set_nested(payload, result.patch.path, result.patch.value)
+    _apply_stage_payload(session, result.patch.stage, payload)
+    session.collection_state.current_stage = result.patch.stage
+    return CollectOutcome(
+        assistant_message=(
+            f"Поле {result.patch.stage}.{result.patch.path} обновлено. "
+            f"Текущее значение: {result.patch.value!r}"
+        ),
+        draft_changed=True,
+    )
+
+
+def _handle_show_input(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del result, deps
+    rendered = json.dumps(
+        session.scenario_draft.model_dump(mode="json"), ensure_ascii=False, indent=2
+    )
+    return CollectOutcome(assistant_message=f"Текущий draft:\n{rendered}")
+
+
+def _handle_next(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del result, deps
+    next_stage = _next_missing_stage(session)
+    if next_stage is None:
+        return CollectOutcome(
+            assistant_message="Все stage заполнены. Выполните `run` для запуска OR-пайплайна."
+        )
+    session.collection_state.current_stage = next_stage
+    return CollectOutcome(assistant_message=_stage_prompt(next_stage))
+
+
+def _handle_run(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del result
+    _recompute_collection_state(session=session, assembler=deps.scenario_assembler)
+    if session.collection_state.ready_to_run:
+        return CollectOutcome(should_run=True)
+    next_stage = _next_missing_stage(session)
+    if next_stage is None:
+        return CollectOutcome(
+            assistant_message="Входы ещё невалидны. Проверьте ошибки stage в левой панели."
+        )
+    return CollectOutcome(
+        assistant_message="Нельзя запустить OR: не все входы готовы. " + _stage_prompt(next_stage)
+    )
+
+
+def _handle_help(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del session, result, deps
+    return CollectOutcome(
+        assistant_message=(
+            "Команды: start, show input, next, run, load preset demo, "
+            "edit <stage>, json <stage> {..}, set <stage>.<field> <value>, reset."
+        )
+    )
+
+
+def _handle_invalid(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    del session, deps
+    issues = "; ".join(result.errors) if result.errors else "не распознана команда"
+    return CollectOutcome(assistant_message=f"Ошибка ввода: {issues}")
+
+
+CollectHandler = Callable[..., CollectOutcome]
+
+_COLLECT_HANDLERS: dict[str, CollectHandler] = {
+    "start": _handle_start,
+    "reset": _handle_reset,
+    "load_preset": _handle_load_preset,
+    "edit_stage": _handle_edit_stage,
+    "stage_json": _handle_stage_json,
+    "set_field": _handle_set_field,
+    "show_input": _handle_show_input,
+    "next": _handle_next,
+    "run": _handle_run,
+    "help": _handle_help,
+    "invalid": _handle_invalid,
+}
+
+
+def _dispatch_collect_action(
+    *,
+    session: AgentSession,
+    result: CommandResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    """Маршрутизирует command action в конкретный обработчик."""
+    handler = _COLLECT_HANDLERS.get(result.action, _handle_invalid)
+    return handler(session=session, result=result, deps=deps)
+
+
 def _collect_inputs_node(
     state: DialogGraphState,
     *,
@@ -158,104 +381,19 @@ def _collect_inputs_node(
     text = state["user_message"]
     result = parse_user_command(message=text, current_stage=session.collection_state.current_stage)
 
-    draft_changed = False
-    should_run = False
-    assistant_message = ""
+    outcome = _dispatch_collect_action(session=session, result=result, deps=deps)
 
-    if result.action == "start":
-        session.scenario_draft = session.scenario_draft.__class__()
-        session.collection_state.current_stage = "production"
-        assistant_message = _stage_prompt("production")
-        draft_changed = True
-    elif result.action == "reset":
-        session.scenario_draft = session.scenario_draft.__class__()
-        session.collection_state.current_stage = "production"
-        session.scenario_draft.preset_ref = None
-        assistant_message = "Черновик сброшен. " + _stage_prompt("production")
-        draft_changed = True
-    elif result.action == "load_preset":
-        if result.preset_ref != "demo":
-            session.errors = ["Unknown preset"]
-        else:
-            session.scenario_draft = deps.preset_loader.load_demo_draft()
-            assistant_message = (
-                "Загружен demo preset. Проверьте ввод командой `show input` и запустите `run`."
-            )
-            draft_changed = True
-    elif result.action == "edit_stage":
-        assert result.stage is not None
-        session.collection_state.current_stage = result.stage
-        assistant_message = _stage_prompt(result.stage)
-    elif result.action == "stage_json":
-        assert result.patch is not None
-        assert result.patch.payload is not None
-        _apply_stage_payload(session, result.patch.stage, result.patch.payload)
-        session.collection_state.current_stage = result.patch.stage
-        assistant_message = f"Stage {STAGE_LABELS[result.patch.stage]} обновлён JSON-объектом."
-        draft_changed = True
-    elif result.action == "set_field":
-        assert result.patch is not None
-        assert result.patch.path is not None
-        payload = dict(_stage_payload_ref(session, result.patch.stage))
-        _set_nested(payload, result.patch.path, result.patch.value)
-        _apply_stage_payload(session, result.patch.stage, payload)
-        session.collection_state.current_stage = result.patch.stage
-        assistant_message = (
-            f"Поле {result.patch.stage}.{result.patch.path} обновлено. "
-            f"Текущее значение: {result.patch.value!r}"
-        )
-        draft_changed = True
-    elif result.action == "show_input":
-        rendered = json.dumps(
-            session.scenario_draft.model_dump(mode="json"), ensure_ascii=False, indent=2
-        )
-        assistant_message = f"Текущий draft:\n{rendered}"
-    elif result.action == "next":
-        next_stage = _next_missing_stage(session)
-        if next_stage is None:
-            assistant_message = "Все stage заполнены. Выполните `run` для запуска OR-пайплайна."
-        else:
-            session.collection_state.current_stage = next_stage
-            assistant_message = _stage_prompt(next_stage)
-    elif result.action == "run":
-        _recompute_collection_state(session=session, assembler=deps.scenario_assembler)
-        if session.collection_state.ready_to_run:
-            should_run = True
-        else:
-            next_stage = _next_missing_stage(session)
-            if next_stage is None:
-                assistant_message = "Входы ещё невалидны. Проверьте ошибки stage в левой панели."
-            else:
-                assistant_message = "Нельзя запустить OR: не все входы готовы. " + _stage_prompt(
-                    next_stage
-                )
-    elif result.action == "help":
-        assistant_message = (
-            "Команды: start, show input, next, run, load preset demo, "
-            "edit <stage>, json <stage> {..}, set <stage>.<field> <value>, reset."
-        )
-    else:
-        issues = "; ".join(result.errors) if result.errors else "не распознана команда"
-        assistant_message = f"Ошибка ввода: {issues}"
-
-    if draft_changed:
-        session.or_result = None
-        session.explanation = None
+    if outcome.draft_changed:
+        _invalidate_cached_result(session)
 
     _recompute_collection_state(session=session, assembler=deps.scenario_assembler)
-    if session.collection_state.ready_to_run:
-        session.pending_question = "Входы валидны. Для запуска расчёта отправьте `run`."
-    else:
-        stage = _next_missing_stage(session)
-        if stage is None:
-            session.pending_question = "Исправьте ошибки в текущем вводе и повторите `run`."
-        else:
-            session.pending_question = _stage_prompt(stage)
+    session.pending_question = _pending_question(session)
 
+    assistant_message = outcome.assistant_message
+    should_run = outcome.should_run
     if assistant_message and not should_run:
         _append_message(session, "assistant", assistant_message)
     elif not should_run and not assistant_message:
-        assert session.pending_question is not None
         assistant_message = session.pending_question
         _append_message(session, "assistant", assistant_message)
 

@@ -13,6 +13,7 @@ from or_core.models import (
     ORPipelineInput,
     ORResult,
     ProductionOutput,
+    RoutingInput,
     RoutingOutput,
     ShipmentOutput,
 )
@@ -120,15 +121,19 @@ def _build_routes(state: ORGraphState) -> ORGraphState:
                 f"Client '{client}' has delivered demand but has no assigned vehicle"
             )
 
-    routing_input = state["input"].routing_template.model_copy(
-        update={
-            "client_demands": delivered_demands,
-            "resource_names": list(assignment_resources),
-            "allowed_vehicle_ids_by_client": {
-                client_node: sorted(vehicle_ids)
-                for client_node, vehicle_ids in allowed_vehicle_ids_by_client.items()
-            },
-        }
+    routing_template = state["input"].routing_template
+    routing_input = RoutingInput(
+        distance_matrix=routing_template.distance_matrix,
+        depot_index=routing_template.depot_index,
+        client_nodes=routing_template.client_nodes,
+        client_demands=delivered_demands,
+        vehicle_capacities=routing_template.vehicle_capacities,
+        resource_names=list(assignment_resources),
+        allowed_vehicle_ids_by_client={
+            client_node: sorted(vehicle_ids)
+            for client_node, vehicle_ids in allowed_vehicle_ids_by_client.items()
+        },
+        objective=routing_template.objective,
     )
     routing = solve_routing(routing_input)
     return {"routing": routing, "execution_trace": _append_trace(state, "build_routes")}

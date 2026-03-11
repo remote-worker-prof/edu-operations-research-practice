@@ -90,7 +90,7 @@ class AgentSession(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)
-    missing_fields: list[str] = Field(default_factory=list)
+    missing_fields: list[StageName] = Field(default_factory=list)
     validation_errors_by_stage: dict[str, list[str]] = Field(default_factory=dict)
     pending_question: str | None = None
     or_result: ORResult | None = None
@@ -125,12 +125,3 @@ class LLMResponse(BaseModel):
     model_alias: str
     model_name: str
     used_fallback: bool = False
-
-
-class ExtractionResult(BaseModel):
-    """Legacy-результат extraction (сохранён для совместимости старых тестов)."""
-
-    demand_multiplier: float | None = Field(default=None, gt=0, le=2)
-    resource_multiplier: float | None = Field(default=None, gt=0, le=2)
-    warnings: list[str] = Field(default_factory=list)
-    errors: list[str] = Field(default_factory=list)

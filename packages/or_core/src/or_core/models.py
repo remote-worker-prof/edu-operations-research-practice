@@ -1,9 +1,9 @@
 """Доменные контракты входов/выходов для OR-пайплайна.
 
-Модуль задаёт все ключевые структуры данных:
-- что получает каждый этап оптимизации;
-- что возвращает каждый этап;
-- какие инварианты размерностей и ограничений проверяются заранее.
+Модуль задаёт ключевые структуры данных:
+- шаблонные независимые входы, которые пользователь заполняет до запуска;
+- runtime-входы, формируемые из результатов предыдущих этапов;
+- выходы каждого оптимизационного этапа и итогового пайплайна.
 """
 
 from __future__ import annotations
@@ -13,18 +13,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-class ScenarioParams(BaseModel):
-    """Legacy-контракт коэффициентов сценария (сохранён для обратной совместимости)."""
-
-    demand_multiplier: float = Field(..., gt=0, le=2)
-    resource_multiplier: float = Field(..., gt=0, le=2)
-
-
 class ProductionInput(BaseModel):
     """Входные данные этапа производства (LP).
 
-    Модель описывает двухпродуктовую постановку: прибыль, ограничения ресурсов,
-    верхние границы спроса и коэффициенты перевода в паллеты.
+    Модель описывает постановку для произвольного числа продуктов: прибыль,
+    ограничения ресурсов, верхние границы спроса и коэффициенты перевода в паллеты.
     """
 
     products: list[str] = Field(..., min_length=1)
@@ -196,8 +189,39 @@ class AssignmentTemplateInput(BaseModel):
         return self
 
 
+class RoutingTemplateInput(BaseModel):
+    """Независимые входные данные routing-этапа до расчёта shipment/assignment."""
+
+    distance_matrix: list[list[int]] = Field(..., min_length=2)
+    depot_index: int = 0
+    client_nodes: list[int] = Field(..., min_length=1)
+    vehicle_capacities: list[int] = Field(..., min_length=1)
+    objective: Literal["total_distance", "max_route_distance"] = "total_distance"
+
+    @model_validator(mode="after")
+    def validate_dimensions(self) -> "RoutingTemplateInput":
+        """Проверяет размерности независимого routing-шаблона."""
+        node_count = len(self.distance_matrix)
+        if any(len(row) != node_count for row in self.distance_matrix):
+            msg = "distance_matrix must be square"
+            raise ValueError(msg)
+        if self.depot_index < 0 or self.depot_index >= node_count:
+            msg = "depot_index must be a valid node index"
+            raise ValueError(msg)
+        if self.depot_index in self.client_nodes:
+            msg = "depot_index must not be listed in client_nodes"
+            raise ValueError(msg)
+        if len(set(self.client_nodes)) != len(self.client_nodes):
+            msg = "client_nodes must not contain duplicates"
+            raise ValueError(msg)
+        if any(node < 0 or node >= node_count for node in self.client_nodes):
+            msg = "client_nodes must be valid node indexes from distance_matrix"
+            raise ValueError(msg)
+        return self
+
+
 class RoutingInput(BaseModel):
-    """Вход этапа маршрутизации (OR-Tools CVRP)."""
+    """Runtime-вход этапа маршрутизации (OR-Tools CVRP)."""
 
     distance_matrix: list[list[int]] = Field(..., min_length=2)
     depot_index: int = 0
@@ -274,7 +298,7 @@ class ORPipelineInput(BaseModel):
     shipment_template: ShipmentTemplateInput
     assignment_resources: list[str] = Field(..., min_length=1)
     assignment_cost_matrix: list[list[float]] = Field(..., min_length=1)
-    routing_template: RoutingInput
+    routing_template: RoutingTemplateInput
 
     @model_validator(mode="after")
     def validate_assignment_template(self) -> "ORPipelineInput":
@@ -314,7 +338,7 @@ class ScenarioSeed(BaseModel):
     shipment: ShipmentTemplateInput
     assignment_resources: list[str]
     assignment_cost_matrix: list[list[float]]
-    routing: RoutingInput
+    routing: RoutingTemplateInput
 
 
 class ScenarioDraft(BaseModel):

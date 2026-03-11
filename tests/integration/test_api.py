@@ -48,6 +48,63 @@ def test_api_chat_turn_success(monkeypatch) -> None:
     assert payload["session"]["or_result"] is not None
 
 
+def test_api_run_without_manual_routing_demands() -> None:
+    """Проверяет, что `routing.client_demands` не требуется во входном draft.
+
+    Риск:
+    - чат может требовать ручной ввод derived-поля, что ломает идею связного OR-конвейера.
+    """
+    # Arrange / Act
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    commands = [
+        (
+            "json production "
+            '{"products":["A","B"],"profits":[40,30],"resource_matrix":[[2,1],[1,1.5]],'
+            '"resource_limits":[240,180],"demand_upper_bounds":[70,80],"pallet_factors":[1.0,0.8]}'
+        ),
+        (
+            "json shipment "
+            '{"warehouses":["W1","W2"],"warehouse_supply_ratio":[0.55,0.45],'
+            '"clients":["C1","C2","C3"],"client_demand":[42,38,40],'
+            '"cost_matrix":[[4,6,8],[5,4,3]],"capacity_matrix":[[50,45,40],[40,45,50]]}'
+        ),
+        (
+            "json assignment "
+            '{"resources":["truck_1","truck_2","truck_3"],"cost_matrix":[[8,6,7],[5,8,6],[7,5,9]]}'
+        ),
+        (
+            "json routing "
+            '{"distance_matrix":[[0,10,12,8],[10,0,6,7],[12,6,0,9],[8,7,9,0]],'
+            '"depot_index":0,"client_nodes":[1,2,3],"vehicle_capacities":[55,45,45]}'
+        ),
+        "run",
+    ]
+
+    response_payload = None
+    for command in commands:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "openai_default",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        response_payload = response.json()
+
+    # Assert
+    assert response_payload is not None
+    assert response_payload["session"]["or_result"] is not None
+    assert "client_demands" not in response_payload["session"]["scenario_draft"]["routing"]
+
+
 def test_api_provider_unavailable_warning(monkeypatch) -> None:
     """Проверяет fallback-объяснение при недоступном локальном провайдере.
 

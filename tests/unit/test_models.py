@@ -6,6 +6,7 @@ from or_core.models import (
     ORPipelineInput,
     ProductionInput,
     RoutingInput,
+    RoutingTemplateInput,
     ShipmentTask,
 )
 from pydantic import ValidationError
@@ -78,7 +79,6 @@ def test_or_pipeline_input_rejects_client_nodes_mismatch() -> None:
                     "distance_matrix": [[0, 1, 1], [1, 0, 1], [1, 1, 0]],
                     "depot_index": 0,
                     "client_nodes": [1],
-                    "client_demands": [1],
                     "vehicle_capacities": [2, 2],
                 },
             }
@@ -98,3 +98,20 @@ def test_production_input_supports_dynamic_dimensions() -> None:
         }
     )
     assert len(model.products) == 3
+
+
+def test_routing_template_input_accepts_without_client_demands() -> None:
+    """Проверяет, что routing-template описывает только независимые входы.
+
+    Риск:
+    - студента могут заставить вводить `client_demands`, хотя это derived-поле из shipment.
+    """
+    model = RoutingTemplateInput.model_validate(
+        {
+            "distance_matrix": [[0, 1, 2], [1, 0, 1], [2, 1, 0]],
+            "depot_index": 0,
+            "client_nodes": [1, 2],
+            "vehicle_capacities": [5, 5],
+        }
+    )
+    assert model.client_nodes == [1, 2]

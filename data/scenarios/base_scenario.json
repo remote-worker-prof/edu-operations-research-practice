@@ -21,9 +21,7 @@
     "distance_matrix": [[0, 10, 12, 8], [10, 0, 6, 7], [12, 6, 0, 9], [8, 7, 9, 0]],
     "depot_index": 0,
     "client_nodes": [1, 2, 3],
-    "client_demands": [42, 38, 40],
     "vehicle_capacities": [55, 45, 45],
-    "resource_names": [],
     "objective": "total_distance"
   }
 }

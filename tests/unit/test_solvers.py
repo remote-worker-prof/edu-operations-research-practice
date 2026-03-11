@@ -3,7 +3,7 @@
 Тесты проверяют инварианты и ожидаемые численные свойства каждого этапа.
 """
 
-from or_core.models import AssignmentInput
+from or_core.models import AssignmentInput, RoutingInput
 from or_core.solvers.assignment import solve_assignment
 from or_core.solvers.production import solve_production
 from or_core.solvers.routing import solve_routing
@@ -70,8 +70,25 @@ def test_routing_solver(runtime_input) -> None:
     Риск:
     - отдельные узлы спроса не попадают в построенные маршруты.
     """
-    # Arrange / Act
-    routing = solve_routing(runtime_input.routing_template)
+    # Arrange
+    production = solve_production(runtime_input.production)
+    shipment = solve_shipment_allocation(runtime_input.shipment_template, production.total_pallets)
+    routing_template = runtime_input.routing_template
+    delivered_demands = [
+        int(shipment.client_delivery.get(client, 0))
+        for client in runtime_input.shipment_template.clients
+    ]
+    routing_input = RoutingInput(
+        distance_matrix=routing_template.distance_matrix,
+        depot_index=routing_template.depot_index,
+        client_nodes=routing_template.client_nodes,
+        client_demands=delivered_demands,
+        vehicle_capacities=routing_template.vehicle_capacities,
+        resource_names=list(runtime_input.assignment_resources),
+    )
+
+    # Act
+    routing = solve_routing(routing_input)
     visited = set()
     for route in routing.routes:
         visited.update(route.nodes)
