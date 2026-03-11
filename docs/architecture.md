@@ -41,7 +41,7 @@
 - Выход: `or_core.models.ORResult`:
   - `production`, `shipment`, `assignment`, `routing`;
   - `final_report`;
-  - `execution_trace` (порядок шагов).
+  - `execution_trace` (порядок только оптимизационных шагов OR-подграфа).
 
 ## 3. Sequence: `chat -> extraction -> OR -> explanation`
 
@@ -72,8 +72,30 @@
   - вход: `tasks` + список ресурсов + `cost_matrix`;
   - выход: `AssignmentOutput` (пары `resource -> task`).
 4. `build_routes`:
-  - вход: `client_delivery`, назначенные ресурсы, routing-template;
+  - вход: `client_delivery`, mapping назначений `client -> resource`, routing-template;
+  - внутри: из `AssignmentOutput.pairs` строится ограничение `allowed_vehicle_ids_by_client`;
   - выход: `RoutingOutput` (маршруты и метрики).
+
+`final_report` собирается после завершения OR-подграфа как пост-обработка и не считается узлом оптимизации.
+
+## 4.1 Математическая формализация 4 этапов
+
+1. `Production (LP)`:
+  - переменные: объёмы выпуска `x_A, x_B`;
+  - цель: `max profit`;
+  - ограничения: ресурсы и верхние границы спроса.
+2. `Shipment (Min-Cost Flow)`:
+  - переменные: потоки `f_{warehouse, client}`;
+  - цель: `min transport cost`;
+  - ограничения: баланс потоков, пропускные способности дуг, доступный объём паллет.
+3. `Assignment (Linear Assignment)`:
+  - переменные: бинарные назначения `y_{resource, task}`;
+  - цель: `min assignment cost`;
+  - ограничения: каждая задача закреплена ровно за одним ресурсом, ресурс назначается не более чем на одну задачу.
+4. `Routing (CVRP)`:
+  - переменные: дуги маршрутов и загрузка ТС;
+  - цель: `min total_distance`;
+  - ограничения: ёмкости ТС, покрытие обязательных клиентов, и ограничения допустимых ТС по клиентам из этапа assignment.
 
 ## 5. Ошибки и деградация
 
@@ -121,3 +143,4 @@
 
 - `docs/dev_build_run.md` — локальный/dev/docker запуск.
 - `docs/git_ssh_github.md` — Git/SSH/GitHub workflow для репозитория.
+- `docs/or_subgraph_math.md` — краткая формализация оптимизационных моделей OR-подграфа.

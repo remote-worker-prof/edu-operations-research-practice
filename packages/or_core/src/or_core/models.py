@@ -165,6 +165,7 @@ class RoutingInput(BaseModel):
     client_demands: list[int] = Field(..., min_length=1)
     vehicle_capacities: list[int] = Field(..., min_length=1)
     resource_names: list[str] = Field(default_factory=list)
+    allowed_vehicle_ids_by_client: dict[int, list[int]] = Field(default_factory=dict)
     objective: Literal["total_distance", "max_route_distance"] = "total_distance"
 
     @model_validator(mode="after")
@@ -183,6 +184,19 @@ class RoutingInput(BaseModel):
         if self.resource_names and len(self.resource_names) != len(self.vehicle_capacities):
             msg = "resource_names length must match vehicle_capacities length"
             raise ValueError(msg)
+        client_node_set = set(self.client_nodes)
+        vehicle_count = len(self.vehicle_capacities)
+        for client_node, vehicle_ids in self.allowed_vehicle_ids_by_client.items():
+            if client_node not in client_node_set:
+                msg = "allowed_vehicle_ids_by_client keys must be subset of client_nodes"
+                raise ValueError(msg)
+            if not vehicle_ids:
+                msg = "allowed_vehicle_ids_by_client values must not be empty"
+                raise ValueError(msg)
+            for vehicle_id in vehicle_ids:
+                if vehicle_id < 0 or vehicle_id >= vehicle_count:
+                    msg = "allowed vehicle id out of range for vehicle_capacities"
+                    raise ValueError(msg)
         return self
 
 
@@ -223,6 +237,9 @@ class ORPipelineInput(BaseModel):
             raise ValueError(msg)
         if any(len(row) != client_count for row in self.assignment_cost_matrix):
             msg = "assignment_cost_matrix columns must match number of clients"
+            raise ValueError(msg)
+        if len(self.routing_template.client_nodes) != client_count:
+            msg = "routing_template.client_nodes length must match number of shipment clients"
             raise ValueError(msg)
         return self
 

@@ -108,6 +108,7 @@ uv run --all-packages pytest
 
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
+- `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
 
 ## Как читать код студенту
 

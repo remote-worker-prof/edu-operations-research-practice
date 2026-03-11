@@ -33,4 +33,4 @@ def test_dialog_graph_happy_path(agent_service) -> None:
 
     # Assert
     assert turn.session.or_result is not None
-    assert turn.session.or_result.execution_trace[-1] == "finalize_report"
+    assert turn.session.or_result.execution_trace[-1] == "build_routes"

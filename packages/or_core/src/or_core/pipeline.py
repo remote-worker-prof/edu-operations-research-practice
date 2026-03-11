@@ -28,7 +28,7 @@ class ORGraphState(TypedDict, total=False):
     """Состояние OR-подграфа между узлами вычислений.
 
     Поля добавляются по мере прохождения этапов:
-    production -> shipment -> assignment -> routing -> report.
+    production -> shipment -> assignment -> routing.
     """
 
     input: ORPipelineInput
@@ -36,7 +36,6 @@ class ORGraphState(TypedDict, total=False):
     shipment: ShipmentOutput
     assignment: AssignmentOutput
     routing: RoutingOutput
-    final_report: str
     execution_trace: list[str]
 
 
@@ -88,44 +87,69 @@ def _assign_resources(state: ORGraphState) -> ORGraphState:
 
 
 def _build_routes(state: ORGraphState) -> ORGraphState:
-    """Узел 4: строит маршруты на основе спроса и назначенных ресурсов."""
+    """Узел 4: решает CVRP с ограничениями, заданными assignment-этапом."""
     client_delivery = state["shipment"].client_delivery
     client_order = state["input"].shipment_template.clients
     delivered_demands = [int(client_delivery.get(client, 0)) for client in client_order]
 
+    client_nodes = state["input"].routing_template.client_nodes
+    client_to_node = {client: node for client, node in zip(client_order, client_nodes, strict=True)}
+
+    assignment_pairs = state["assignment"].pairs
+    assignment_resources = state["input"].assignment_resources
+    resource_to_vehicle_id = {
+        resource: vehicle_id for vehicle_id, resource in enumerate(assignment_resources)
+    }
+
+    allowed_vehicle_ids_by_client: dict[int, set[int]] = {}
+    assigned_clients: set[str] = set()
+    vehicle_capacities = state["input"].routing_template.vehicle_capacities
+    for pair in assignment_pairs:
+        assigned_clients.add(pair.client)
+        vehicle_id = resource_to_vehicle_id[pair.resource]
+        if pair.assigned_volume > vehicle_capacities[vehicle_id]:
+            raise AssignmentError(
+                "Assigned task volume exceeds vehicle capacity, routing is infeasible"
+            )
+        client_node = client_to_node[pair.client]
+        allowed_vehicle_ids_by_client.setdefault(client_node, set()).add(vehicle_id)
+
+    for client, demand in zip(client_order, delivered_demands, strict=True):
+        if demand > 0 and client not in assigned_clients:
+            raise AssignmentError(
+                f"Client '{client}' has delivered demand but has no assigned vehicle"
+            )
+
     routing_input = state["input"].routing_template.model_copy(
         update={
             "client_demands": delivered_demands,
-            "resource_names": list(state["input"].assignment_resources),
+            "resource_names": list(assignment_resources),
+            "allowed_vehicle_ids_by_client": {
+                client_node: sorted(vehicle_ids)
+                for client_node, vehicle_ids in allowed_vehicle_ids_by_client.items()
+            },
         }
     )
     routing = solve_routing(routing_input)
     return {"routing": routing, "execution_trace": _append_trace(state, "build_routes")}
 
 
-def _finalize_report(state: ORGraphState) -> ORGraphState:
-    """Узел 5: собирает короткий финальный отчёт по всем этапам."""
-    production = state["production"]
-    shipment = state["shipment"]
-    assignment = state["assignment"]
-    routing = state["routing"]
-
-    report = (
+def _finalize_report(state: ORGraphState) -> str:
+    """Формирует короткий финальный отчёт как пост-обработку OR-графа."""
+    return (
         "Суточный тактический план готов. "
-        f"Выпуск: {production.quantities}. "
-        f"Отгружено паллет: {shipment.total_dispatched}. "
-        f"Назначений: {len(assignment.pairs)}. "
-        f"Суммарная длина маршрутов: {routing.total_distance}."
+        f"Выпуск: {state['production'].quantities}. "
+        f"Отгружено паллет: {state['shipment'].total_dispatched}. "
+        f"Назначений: {len(state['assignment'].pairs)}. "
+        f"Суммарная длина маршрутов: {state['routing'].total_distance}."
     )
-
-    return {"final_report": report, "execution_trace": _append_trace(state, "finalize_report")}
 
 
 def build_or_graph() -> StateGraph:
     """Собирает и компилирует детерминированный OR-подграф.
 
     Что делает:
-    - регистрирует узлы для 4 этапов оптимизации и финального отчёта;
+    - регистрирует узлы только для 4 этапов оптимизации;
     - задаёт фиксированный порядок рёбер;
     - возвращает готовый к `invoke` граф.
     """
@@ -134,14 +158,12 @@ def build_or_graph() -> StateGraph:
     builder.add_node("allocate_shipments", _allocate_shipments)
     builder.add_node("assign_resources", _assign_resources)
     builder.add_node("build_routes", _build_routes)
-    builder.add_node("finalize_report", _finalize_report)
 
     builder.add_edge(START, "optimize_production")
     builder.add_edge("optimize_production", "allocate_shipments")
     builder.add_edge("allocate_shipments", "assign_resources")
     builder.add_edge("assign_resources", "build_routes")
-    builder.add_edge("build_routes", "finalize_report")
-    builder.add_edge("finalize_report", END)
+    builder.add_edge("build_routes", END)
 
     return builder.compile()
 
@@ -176,6 +198,6 @@ class ORPipeline:
             shipment=output_state["shipment"],
             assignment=output_state["assignment"],
             routing=output_state["routing"],
-            final_report=output_state["final_report"],
+            final_report=_finalize_report(output_state),
             execution_trace=output_state.get("execution_trace", []),
         )

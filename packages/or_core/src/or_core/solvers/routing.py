@@ -53,6 +53,14 @@ def solve_routing(data: RoutingInput) -> RoutingOutput:
         "Capacity",
     )
 
+    for client_node, allowed_vehicle_ids in data.allowed_vehicle_ids_by_client.items():
+        routing_index = manager.NodeToIndex(int(client_node))
+        # В текущей версии OR-Tools Python-обвязки SetAllowedVehiclesForIndex
+        # не принимает список корректно. Ограничение задаём через домен VehicleVar.
+        routing.VehicleVar(routing_index).SetValues(
+            [int(vehicle_id) for vehicle_id in allowed_vehicle_ids]
+        )
+
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     params.local_search_metaheuristic = (
