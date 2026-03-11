@@ -6,13 +6,14 @@
   - HTTP-слой (`FastAPI` + `HTMX`), рендеринг страницы и partial-ответов.
   - Не содержит бизнес-логики OR, только вызывает `AgentService`.
 - `packages/agent_core`:
-  - Диалоговый граф (`DialogGraph`), извлечение параметров, объяснение результата.
+  - Диалоговый граф (`DialogGraph`), интерактивный сбор входов, объяснение результата.
   - Управление сессиями и интеграция с `LiteLLM`.
 - `packages/or_core`:
   - Детерминированный OR-пайплайн из 4 солверов.
   - Доменные модели входов/выходов и строгая валидация.
 
-Ключевой принцип: `LLM` отвечает только за извлечение и объяснение, а расчёт делает только `or_core`.
+Ключевой принцип: `LLM` не является источником истины для структурированных OR-входов.
+Сбор входов выполняется детерминированным parser/wizard, а `LLM` используется для объяснения.
 
 ## 2. Контракты данных
 
@@ -30,8 +31,11 @@
 - Модель: `agent_core.models.AgentSession`.
 - Ключевые поля:
   - `messages` — история диалога;
-  - `scenario_params` — коэффициенты сценария;
-  - `missing_fields` — какие параметры ещё запросить;
+  - `scenario_draft` — текущий черновик всех независимых OR-входов;
+  - `collection_state` — состояние wizard (`current_stage`, `ready_to_run`);
+  - `missing_fields` — какие stage ещё не готовы;
+  - `validation_errors_by_stage` — ошибки валидации по stage;
+  - `pending_question` — следующий вопрос для пользователя;
   - `or_result` — результат OR-пайплайна (или `null`);
   - `warnings`, `errors` — диагностические сообщения для пользователя.
 
@@ -43,17 +47,17 @@
   - `final_report`;
   - `execution_trace` (порядок только оптимизационных шагов OR-подграфа).
 
-## 3. Sequence: `chat -> extraction -> OR -> explanation`
+## 3. Sequence: `chat -> collect_inputs -> run_or -> explanation`
 
 1. Пользователь отправляет сообщение в `webapp`.
 2. `AgentService.handle_turn()` поднимает/получает сессию и вызывает `DialogGraph`.
-3. Узел `extract_params`:
-  - пробует LLM-extraction;
-  - при необходимости применяет regex-парсер;
-  - валидирует коэффициенты.
-4. Если параметров не хватает, `ask_missing` возвращает уточняющий вопрос.
-5. Если параметры валидны, `run_or_subgraph`:
-  - строит `ORPipelineInput` из seed-сценария;
+3. Узел `collect_inputs`:
+  - парсит детерминированные команды (`start`, `json`, `set`, `run`, ...);
+  - обновляет `ScenarioDraft`;
+  - валидирует stage и вычисляет `ready_to_run`.
+4. Пока `ready_to_run = false`, агент продолжает задавать уточняющие вопросы по stage.
+5. По явной команде `run` и при `ready_to_run = true` узел `run_or_subgraph`:
+  - собирает `ORPipelineInput` из `ScenarioDraft`;
   - запускает 4 OR-этапа.
 6. Узел `explain`:
   - пытается получить объяснение через LLM;
@@ -99,9 +103,9 @@
 
 ## 5. Ошибки и деградация
 
-- Невалидные коэффициенты:
-  - не приводят к 500;
-  - попадают в `session.errors` с понятным текстом.
+- Невалидный stage input:
+  - не приводит к 500;
+  - отображается в `validation_errors_by_stage` и `pending_question`.
 - Ошибка OR-пайплайна:
   - сохраняется в `session.errors`;
   - пользователю возвращается корректный assistant-response с описанием ошибки.
@@ -112,15 +116,14 @@
 ## 6. Учебный UX (веб-экран)
 
 - Левая панель:
-  - коэффициенты сценария;
+  - прогресс заполнения 4 stage;
+  - статус `ready_to_run`;
   - карточки 4 OR-этапов;
   - предупреждения и ошибки.
 - Правая панель:
   - история диалога;
   - ввод сообщения и выбор модели человеко-понятными названиями.
-- Если параметров не хватает, интерфейс явно запрашивает:
-  - `Коэффициент спроса`;
-  - `Коэффициент ресурсов`.
+- Если входы не полны, интерфейс явно показывает следующий шаг (`pending_question`).
 
 ## 7. Рекомендуемый порядок чтения кода
 
@@ -129,9 +132,9 @@
 2. `packages/agent_core/src/agent_core/service.py`:
   - как организован lifecycle одного хода диалога.
 3. `packages/agent_core/src/agent_core/dialog_graph.py`:
-  - ветвление сценария `extract -> ask/run -> explain/error`.
-4. `packages/agent_core/src/agent_core/extractor.py` и `explainer.py`:
-  - extraction/fallback и генерация объяснения.
+  - ветвление сценария `collect -> run -> explain/error`.
+4. `packages/agent_core/src/agent_core/input_parser.py` и `explainer.py`:
+  - parser команд/patch и генерация объяснения.
 5. `packages/or_core/src/or_core/pipeline.py`:
   - последовательность 4 OR-этапов.
 6. `packages/or_core/src/or_core/solvers/*.py`:
@@ -144,3 +147,4 @@
 - `docs/dev_build_run.md` — локальный/dev/docker запуск.
 - `docs/git_ssh_github.md` — Git/SSH/GitHub workflow для репозитория.
 - `docs/or_subgraph_math.md` — краткая формализация оптимизационных моделей OR-подграфа.
+- `docs/epics/interactive_or_input_epic.md` — план и контракт интерактивного сбора входов.

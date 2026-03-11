@@ -1,11 +1,12 @@
 """Ядро исследовательских операций для учебного демо-проекта.
 
 Пакет экспортирует:
-- `ScenarioBuilder` для подготовки runtime-входа;
+- `ScenarioAssembler` для подготовки runtime-входа из draft;
+- `ScenarioPresetLoader` для явной загрузки demo preset;
 - `ORPipeline` для запуска полной цепочки оптимизации.
 """
 
 from .pipeline import ORPipeline
-from .scenario import ScenarioBuilder
+from .scenario import ScenarioAssembler, ScenarioPresetLoader
 
-__all__ = ["ORPipeline", "ScenarioBuilder"]
+__all__ = ["ORPipeline", "ScenarioAssembler", "ScenarioPresetLoader"]

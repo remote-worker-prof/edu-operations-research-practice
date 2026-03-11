@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from or_core.pipeline import ORPipeline
-from or_core.scenario import ScenarioBuilder
+from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 from agent_core.config import DEFAULT_MODEL_ALIAS, default_scenario_path
 from agent_core.dialog_graph import build_dialog_graph
@@ -23,7 +23,8 @@ class AgentService:
     """Фасад прикладного уровня для обработки реплик пользователя.
 
     Что делает:
-    - создаёт и хранит зависимости (`session_store`, `LLMClient`, `ScenarioBuilder`, `ORPipeline`);
+    - создаёт и хранит зависимости:
+      `session_store`, `LLMClient`, `ScenarioAssembler`, `ORPipeline`;
     - запускает `DialogGraph` для каждого входящего хода.
 
     Зачем:
@@ -40,16 +41,19 @@ class AgentService:
         """Инициализирует все зависимости сервиса.
 
         Входы:
-        - `scenario_path`: путь к JSON-сценарию (если не задан, берётся дефолт из конфига);
+        - `scenario_path`: путь к JSON preset-сценарию (опциональный demo preset);
         - `session_store`: кастомное хранилище сессий (опционально);
         - `llm_client`: кастомный LLM-клиент (опционально).
         """
         self._store = session_store or InMemorySessionStore()
         self._llm_client = llm_client or LLMClient()
-        self._scenario_builder = ScenarioBuilder(scenario_path or default_scenario_path())
+        preset_path = scenario_path or default_scenario_path()
+        self._scenario_assembler = ScenarioAssembler()
+        self._preset_loader = ScenarioPresetLoader(preset_path)
         self._or_pipeline = ORPipeline()
         self._dialog_graph = build_dialog_graph(
-            scenario_builder=self._scenario_builder,
+            scenario_assembler=self._scenario_assembler,
+            preset_loader=self._preset_loader,
             or_pipeline=self._or_pipeline,
             llm_client=self._llm_client,
         )

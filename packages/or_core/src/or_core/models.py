@@ -8,16 +8,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class ScenarioParams(BaseModel):
-    """Параметры, которые пользователь вводит в диалоге для настройки сценария.
-
-    Эти коэффициенты масштабируют базовый seed-сценарий без изменения его структуры.
-    """
+    """Legacy-контракт коэффициентов сценария (сохранён для обратной совместимости)."""
 
     demand_multiplier: float = Field(..., gt=0, le=2)
     resource_multiplier: float = Field(..., gt=0, le=2)
@@ -30,21 +27,35 @@ class ProductionInput(BaseModel):
     верхние границы спроса и коэффициенты перевода в паллеты.
     """
 
-    products: list[str] = Field(default_factory=lambda: ["A", "B"])
-    profits: list[float] = Field(..., min_length=2, max_length=2)
-    resource_matrix: list[list[float]] = Field(..., min_length=2, max_length=2)
-    resource_limits: list[float] = Field(..., min_length=2, max_length=2)
-    demand_upper_bounds: list[float] = Field(..., min_length=2, max_length=2)
-    pallet_factors: list[float] = Field(..., min_length=2, max_length=2)
+    products: list[str] = Field(..., min_length=1)
+    profits: list[float] = Field(..., min_length=1)
+    resource_matrix: list[list[float]] = Field(..., min_length=1)
+    resource_limits: list[float] = Field(..., min_length=1)
+    demand_upper_bounds: list[float] = Field(..., min_length=1)
+    pallet_factors: list[float] = Field(..., min_length=1)
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "ProductionInput":
-        """Проверяет фиксированную учебную размерность `2 x 2` для LP-постановки."""
-        if len(self.products) != 2:
-            msg = "ProductionInput requires exactly 2 products for the educational scenario"
+        """Проверяет согласованность размерностей LP-постановки `R x P`."""
+        product_count = len(self.products)
+        if len(self.profits) != product_count:
+            msg = "profits length must match products length"
             raise ValueError(msg)
-        if any(len(row) != 2 for row in self.resource_matrix):
-            msg = "resource_matrix must be 2x2"
+        if len(self.demand_upper_bounds) != product_count:
+            msg = "demand_upper_bounds length must match products length"
+            raise ValueError(msg)
+        if len(self.pallet_factors) != product_count:
+            msg = "pallet_factors length must match products length"
+            raise ValueError(msg)
+        resource_count = len(self.resource_matrix)
+        if resource_count == 0:
+            msg = "resource_matrix must contain at least one row"
+            raise ValueError(msg)
+        if any(len(row) != product_count for row in self.resource_matrix):
+            msg = "resource_matrix must be R x P where P is number of products"
+            raise ValueError(msg)
+        if len(self.resource_limits) != resource_count:
+            msg = "resource_limits length must match number of resource rows"
             raise ValueError(msg)
         return self
 
@@ -61,27 +72,33 @@ class ProductionOutput(BaseModel):
 class ShipmentTemplateInput(BaseModel):
     """Шаблон входа для этапа отгрузки (min-cost flow)."""
 
-    warehouses: list[str] = Field(default_factory=lambda: ["W1", "W2"], min_length=2, max_length=2)
-    warehouse_supply_ratio: list[float] = Field(..., min_length=2, max_length=2)
+    warehouses: list[str] = Field(..., min_length=1)
+    warehouse_supply_ratio: list[float] = Field(..., min_length=1)
     clients: list[str] = Field(..., min_length=1)
     client_demand: list[int] = Field(..., min_length=1)
-    cost_matrix: list[list[float]] = Field(..., min_length=2, max_length=2)
-    capacity_matrix: list[list[int]] = Field(..., min_length=2, max_length=2)
+    cost_matrix: list[list[float]] = Field(..., min_length=1)
+    capacity_matrix: list[list[int]] = Field(..., min_length=1)
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "ShipmentTemplateInput":
         """Проверяет консистентность размерностей `warehouses x clients`."""
+        warehouse_count = len(self.warehouses)
         client_count = len(self.clients)
+        if len(self.warehouse_supply_ratio) != warehouse_count:
+            msg = "warehouse_supply_ratio length must match warehouses length"
+            raise ValueError(msg)
         if len(self.client_demand) != client_count:
             msg = "client_demand length must match clients length"
             raise ValueError(msg)
-        if len(self.cost_matrix) != 2 or any(len(row) != client_count for row in self.cost_matrix):
-            msg = "cost_matrix must be 2xN where N is number of clients"
+        if len(self.cost_matrix) != warehouse_count or any(
+            len(row) != client_count for row in self.cost_matrix
+        ):
+            msg = "cost_matrix must be W x C where W=warehouses and C=clients"
             raise ValueError(msg)
-        if len(self.capacity_matrix) != 2 or any(
+        if len(self.capacity_matrix) != warehouse_count or any(
             len(row) != client_count for row in self.capacity_matrix
         ):
-            msg = "capacity_matrix must be 2xN where N is number of clients"
+            msg = "capacity_matrix must be W x C where W=warehouses and C=clients"
             raise ValueError(msg)
         if sum(self.warehouse_supply_ratio) <= 0:
             msg = "warehouse_supply_ratio sum must be > 0"
@@ -156,6 +173,29 @@ class AssignmentOutput(BaseModel):
     pairs: list[AssignmentPair]
 
 
+class AssignmentTemplateInput(BaseModel):
+    """Независимые входные данные assignment-этапа до появления shipment tasks."""
+
+    resources: list[str] = Field(..., min_length=1)
+    cost_matrix: list[list[float]] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_dimensions(self) -> "AssignmentTemplateInput":
+        """Проверяет размерность `resources x clients` для шаблона назначения."""
+        rows = len(self.resources)
+        if len(self.cost_matrix) != rows:
+            msg = "cost_matrix rows must equal number of resources"
+            raise ValueError(msg)
+        column_count = len(self.cost_matrix[0]) if self.cost_matrix else 0
+        if column_count == 0:
+            msg = "cost_matrix must contain at least one client column"
+            raise ValueError(msg)
+        if any(len(row) != column_count for row in self.cost_matrix):
+            msg = "all rows in cost_matrix must have equal length"
+            raise ValueError(msg)
+        return self
+
+
 class RoutingInput(BaseModel):
     """Вход этапа маршрутизации (OR-Tools CVRP)."""
 
@@ -175,11 +215,20 @@ class RoutingInput(BaseModel):
         if any(len(row) != node_count for row in self.distance_matrix):
             msg = "distance_matrix must be square"
             raise ValueError(msg)
+        if self.depot_index < 0 or self.depot_index >= node_count:
+            msg = "depot_index must be a valid node index"
+            raise ValueError(msg)
         if len(self.client_nodes) != len(self.client_demands):
             msg = "client_nodes length must match client_demands length"
             raise ValueError(msg)
         if self.depot_index in self.client_nodes:
             msg = "depot_index must not be listed in client_nodes"
+            raise ValueError(msg)
+        if len(set(self.client_nodes)) != len(self.client_nodes):
+            msg = "client_nodes must not contain duplicates"
+            raise ValueError(msg)
+        if any(node < 0 or node >= node_count for node in self.client_nodes):
+            msg = "client_nodes must be valid node indexes from distance_matrix"
             raise ValueError(msg)
         if self.resource_names and len(self.resource_names) != len(self.vehicle_capacities):
             msg = "resource_names length must match vehicle_capacities length"
@@ -238,6 +287,9 @@ class ORPipelineInput(BaseModel):
         if any(len(row) != client_count for row in self.assignment_cost_matrix):
             msg = "assignment_cost_matrix columns must match number of clients"
             raise ValueError(msg)
+        if len(self.routing_template.vehicle_capacities) != rows:
+            msg = "routing_template.vehicle_capacities length must match assignment_resources"
+            raise ValueError(msg)
         if len(self.routing_template.client_nodes) != client_count:
             msg = "routing_template.client_nodes length must match number of shipment clients"
             raise ValueError(msg)
@@ -263,3 +315,13 @@ class ScenarioSeed(BaseModel):
     assignment_resources: list[str]
     assignment_cost_matrix: list[list[float]]
     routing: RoutingInput
+
+
+class ScenarioDraft(BaseModel):
+    """Черновик независимых входов, собираемых интерактивно в чате."""
+
+    production: dict[str, Any] = Field(default_factory=dict)
+    shipment: dict[str, Any] = Field(default_factory=dict)
+    assignment: dict[str, Any] = Field(default_factory=dict)
+    routing: dict[str, Any] = Field(default_factory=dict)
+    preset_ref: str | None = None

@@ -2,17 +2,55 @@
   <section class="panel">
     <h2>Параметры и результаты</h2>
     <div class="kv"><span>Сессия</span><strong>{{ session.session_id }}</strong></div>
-    <div class="kv"><span>Коэффициент спроса</span><strong>{{ session.scenario_params.demand_multiplier if session.scenario_params.demand_multiplier is not none else "-" }}</strong></div>
-    <div class="kv"><span>Коэффициент ресурсов</span><strong>{{ session.scenario_params.resource_multiplier if session.scenario_params.resource_multiplier is not none else "-" }}</strong></div>
+    <div class="kv"><span>Режим ввода</span><strong>{{ session.collection_state.mode }}</strong></div>
+    <div class="kv"><span>Текущий stage</span><strong>{{ session.collection_state.current_stage or "-" }}</strong></div>
+    <div class="kv"><span>Готово к run</span><strong>{{ "Да" if session.collection_state.ready_to_run else "Нет" }}</strong></div>
+    {% if session.scenario_draft.preset_ref %}
+      <div class="kv"><span>Preset</span><strong>{{ session.scenario_draft.preset_ref }}</strong></div>
+    {% endif %}
+
+    <div class="card">
+      <strong>Прогресс stage-by-stage</strong>
+      <div class="stack">
+        {% for stage in ["production", "shipment", "assignment", "routing"] %}
+          {% set errors = session.validation_errors_by_stage.get(stage, []) %}
+          <div class="kv">
+            <span>{{ missing_field_labels.get(stage, stage) }}</span>
+            <strong>{{ "готов" if not errors else "не готов" }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
 
     {% if session.missing_fields %}
       <div class="card">
-        <strong>Не хватает параметров:</strong>
+        <strong>Незаполненные stage:</strong>
         <div class="stack">
           {% for field in session.missing_fields %}
             <span class="chip">{{ missing_field_labels.get(field, field) }}</span>
           {% endfor %}
         </div>
+      </div>
+    {% endif %}
+
+    {% if session.pending_question %}
+      <div class="card">
+        <strong>Следующий шаг:</strong>
+        <div>{{ session.pending_question }}</div>
+      </div>
+    {% endif %}
+
+    {% if session.validation_errors_by_stage %}
+      <div class="card warn">
+        <strong>Ошибки валидации stage:</strong>
+        {% for stage, errors in session.validation_errors_by_stage.items() %}
+          {% if errors %}
+            <div><strong>{{ missing_field_labels.get(stage, stage) }}</strong></div>
+            {% for error in errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
       </div>
     {% endif %}
 
@@ -43,7 +81,9 @@
         <strong>Trace:</strong> {{ session.or_result.execution_trace | join(" -> ") }}
       </div>
     {% else %}
-      <div class="card">После ввода параметров здесь появятся результаты всех 4 этапов.</div>
+      <div class="card">
+        OR-результаты появятся после заполнения всех независимых входов и команды <code>run</code>.
+      </div>
     {% endif %}
 
     {% if session.warnings %}
@@ -74,7 +114,8 @@
         {% endfor %}
       {% else %}
         <div class="msg assistant">
-          Привет. Укажи коэффициенты сценария, например: "спрос 1.0, ресурс 1.0".
+          Привет. Введите <code>start</code>, затем по шагам заполните stages.
+          Можно быстро загрузить demo-профиль: <code>load preset demo</code>.
         </div>
       {% endif %}
     </div>
@@ -92,7 +133,7 @@
         <input
           name="message"
           type="text"
-          placeholder="Введите запрос или параметры сценария"
+          placeholder="Команда: start | json <stage> {...} | set <stage>.<field> <value> | run"
           autocomplete="off"
           required
         />

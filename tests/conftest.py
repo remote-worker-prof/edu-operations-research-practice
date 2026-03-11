@@ -2,7 +2,8 @@
 
 Модуль объясняет, как собирается стандартный runtime-контекст:
 - путь к seed-сценарию;
-- `ScenarioBuilder`;
+- `ScenarioPresetLoader`;
+- `ScenarioAssembler`;
 - валидный `runtime_input`;
 - готовый `AgentService`.
 """
@@ -11,8 +12,7 @@ from pathlib import Path
 
 import pytest
 from agent_core.service import AgentService
-from or_core.models import ScenarioParams
-from or_core.scenario import ScenarioBuilder
+from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 
 @pytest.fixture(scope="session")
@@ -22,15 +22,17 @@ def scenario_path() -> Path:
 
 
 @pytest.fixture(scope="session")
-def scenario_builder(scenario_path: Path) -> ScenarioBuilder:
-    """Создаёт `ScenarioBuilder` поверх базового сценария."""
-    return ScenarioBuilder(scenario_path)
+def scenario_preset_loader(scenario_path: Path) -> ScenarioPresetLoader:
+    """Создаёт `ScenarioPresetLoader` поверх базового сценария."""
+    return ScenarioPresetLoader(scenario_path)
 
 
 @pytest.fixture()
-def runtime_input(scenario_builder: ScenarioBuilder):
-    """Готовит валидный `ORPipelineInput` с нейтральными коэффициентами (1.0/1.0)."""
-    return scenario_builder.build(ScenarioParams(demand_multiplier=1.0, resource_multiplier=1.0))
+def runtime_input(scenario_preset_loader: ScenarioPresetLoader):
+    """Готовит валидный `ORPipelineInput` из demo draft preset."""
+    assembler = ScenarioAssembler()
+    draft = scenario_preset_loader.load_demo_draft()
+    return assembler.build_from_draft(draft)
 
 
 @pytest.fixture()

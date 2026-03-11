@@ -1,7 +1,13 @@
 """Unit-тесты валидации доменных Pydantic-моделей."""
 
 import pytest
-from or_core.models import AssignmentInput, ORPipelineInput, RoutingInput, ShipmentTask
+from or_core.models import (
+    AssignmentInput,
+    ORPipelineInput,
+    ProductionInput,
+    RoutingInput,
+    ShipmentTask,
+)
 from pydantic import ValidationError
 
 
@@ -77,3 +83,18 @@ def test_or_pipeline_input_rejects_client_nodes_mismatch() -> None:
                 },
             }
         )
+
+
+def test_production_input_supports_dynamic_dimensions() -> None:
+    """Проверяет, что production-модель поддерживает произвольное число продуктов/ресурсов."""
+    model = ProductionInput.model_validate(
+        {
+            "products": ["A", "B", "C"],
+            "profits": [10.0, 12.0, 8.0],
+            "resource_matrix": [[1.0, 0.5, 0.7], [0.3, 1.2, 0.4], [0.8, 0.6, 1.1]],
+            "resource_limits": [120.0, 90.0, 100.0],
+            "demand_upper_bounds": [40.0, 45.0, 50.0],
+            "pallet_factors": [1.0, 0.9, 1.1],
+        }
+    )
+    assert len(model.products) == 3

@@ -7,8 +7,6 @@
 import re
 
 from agent_core.config import model_aliases, model_options
-from agent_core.llm import LLMClient
-from agent_core.models import LLMResponse
 from fastapi.testclient import TestClient
 from or_core.exceptions import ORPipelineError
 from webapp.main import app, service
@@ -24,12 +22,23 @@ def test_api_chat_turn_success(monkeypatch) -> None:
     """
     # Arrange
     monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
-    # Act
-    response = client.post(
+    # Act: сначала загружаем preset
+    preset_response = client.post(
         "/api/chat/turn",
         json={
             "model_alias": "local_default",
-            "message": "спрос 1.0 ресурс 1.0",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "message": "run",
         },
     )
     # Assert
@@ -48,11 +57,22 @@ def test_api_provider_unavailable_warning(monkeypatch) -> None:
     # Arrange
     monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
     # Act
-    response = client.post(
+    preset_response = client.post(
         "/api/chat/turn",
         json={
             "model_alias": "local_default",
-            "message": "спрос 1.0 ресурс 1.0",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "message": "run",
         },
     )
     # Assert
@@ -81,13 +101,22 @@ def test_htmx_turn_full_cycle(monkeypatch) -> None:
     assert match is not None
     session_id = match.group(1)
 
-    # Act
+    preset_partial = client.post(
+        "/chat/turn",
+        data={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_partial.status_code == 200
+
     partial = client.post(
         "/chat/turn",
         data={
             "session_id": session_id,
             "model_alias": "local_default",
-            "message": "спрос 1.0 ресурс 1.0",
+            "message": "run",
         },
     )
     # Assert
@@ -147,46 +176,29 @@ def test_htmx_missing_fields_show_human_labels(monkeypatch) -> None:
         data={
             "session_id": session_id,
             "model_alias": "local_default",
-            "message": "Привет",
+            "message": "start",
         },
     )
     # Assert
     assert partial.status_code == 200
-    assert "Коэффициент спроса" in partial.text
-    assert "Коэффициент ресурсов" in partial.text
-    assert "demand_multiplier" not in partial.text
-    assert "resource_multiplier" not in partial.text
+    assert "1) Production" in partial.text
+    assert "2) Shipment" in partial.text
+    assert "production" not in partial.text or "json production" in partial.text
 
 
-def test_api_chat_turn_invalid_llm_values_return_user_errors(monkeypatch) -> None:
-    """Проверяет устойчивость к нечисловым значениям, пришедшим от LLM.
+def test_api_chat_turn_invalid_command_return_user_errors(monkeypatch) -> None:
+    """Проверяет устойчивость к невалидной команде в чате.
 
     Риск:
-    - невалидные данные extraction могут привести к падению вместо управляемой ошибки.
+    - parser может вернуть runtime-ошибку вместо человеко-понятного ответа.
     """
-
-    def _fake_complete(
-        self: LLMClient,
-        messages: list[dict[str, str]],
-        model_alias: str,
-        task_mode: str,
-        temperature: float = 0,
-    ) -> LLMResponse:
-        return LLMResponse(
-            content='{"demand_multiplier":"abc","resource_multiplier":"xyz"}',
-            model_alias=model_alias,
-            model_name="stub",
-        )
-
-    # Arrange
-    monkeypatch.setattr(LLMClient, "complete", _fake_complete)
 
     # Act
     response = client.post(
         "/api/chat/turn",
         json={
             "model_alias": "openai_default",
-            "message": "используй параметры из модели",
+            "message": "абракадабра без команды",
         },
     )
     # Assert
@@ -194,9 +206,8 @@ def test_api_chat_turn_invalid_llm_values_return_user_errors(monkeypatch) -> Non
 
     payload = response.json()
     assert payload["session"]["or_result"] is None
-    assert payload["session"]["errors"]
-    assert "должен быть числом" in " ".join(payload["session"]["errors"])
-    assert "Не удалось выполнить шаг" in payload["assistant_message"]
+    assert payload["assistant_message"]
+    assert "Ошибка ввода" in payload["assistant_message"]
 
 
 def test_api_chat_turn_or_pipeline_error(monkeypatch) -> None:
@@ -213,11 +224,22 @@ def test_api_chat_turn_or_pipeline_error(monkeypatch) -> None:
     monkeypatch.setattr(service._or_pipeline, "run", _raise_pipeline_error)
 
     # Act
-    response = client.post(
+    preset_response = client.post(
         "/api/chat/turn",
         json={
             "model_alias": "local_default",
-            "message": "спрос 1.0 ресурс 1.0",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "message": "run",
         },
     )
     # Assert

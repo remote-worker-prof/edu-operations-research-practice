@@ -10,13 +10,16 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
-from or_core.models import ORResult
+from or_core.models import ORResult, ScenarioDraft
 from pydantic import BaseModel, Field
 
 from agent_core.config import DEFAULT_MODEL_ALIAS
+
+STAGE_ORDER = ["production", "shipment", "assignment", "routing"]
+StageName = Literal["production", "shipment", "assignment", "routing"]
 
 
 class ChatMessage(BaseModel):
@@ -33,35 +36,44 @@ class ChatMessage(BaseModel):
     content: str
 
 
-class ScenarioParamState(BaseModel):
-    """Текущее состояние коэффициентов сценария в сессии.
+class CollectionState(BaseModel):
+    """Текущее состояние интерактивного сбора входов OR-подграфа."""
 
-    Что делает:
-    - хранит уже извлечённые значения множителей спроса и ресурсов.
+    mode: Literal["wizard", "json"] = "wizard"
+    current_stage: StageName | None = "production"
+    ready_to_run: bool = False
 
-    Зачем:
-    - позволяет диалогу работать итеративно: часть параметров может прийти в разных сообщениях.
-    """
 
-    demand_multiplier: float | None = Field(default=None, gt=0, le=2)
-    resource_multiplier: float | None = Field(default=None, gt=0, le=2)
+class InputPatch(BaseModel):
+    """Частичное обновление draft, извлечённое из команды пользователя."""
 
-    def missing_fields(self) -> list[str]:
-        """Возвращает список параметров, которых ещё не хватает для расчёта.
+    stage: StageName
+    payload: dict[str, Any] | None = None
+    path: str | None = None
+    value: Any = None
 
-        Что делает:
-        - проверяет, заданы ли оба коэффициента;
-        - собирает отсутствующие поля в список.
 
-        Зачем:
-        - `DialogGraph` использует этот список для построения уточняющего вопроса пользователю.
-        """
-        missing: list[str] = []
-        if self.demand_multiplier is None:
-            missing.append("demand_multiplier")
-        if self.resource_multiplier is None:
-            missing.append("resource_multiplier")
-        return missing
+class CommandResult(BaseModel):
+    """Результат детерминированного разбора пользовательской реплики."""
+
+    action: Literal[
+        "start",
+        "next",
+        "show_input",
+        "run",
+        "reset",
+        "load_preset",
+        "edit_stage",
+        "stage_json",
+        "set_field",
+        "help",
+        "invalid",
+    ]
+    message: str | None = None
+    patch: InputPatch | None = None
+    stage: StageName | None = None
+    preset_ref: Literal["demo"] | None = None
+    errors: list[str] = Field(default_factory=list)
 
 
 class AgentSession(BaseModel):
@@ -76,8 +88,11 @@ class AgentSession(BaseModel):
 
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     messages: list[ChatMessage] = Field(default_factory=list)
-    scenario_params: ScenarioParamState = Field(default_factory=ScenarioParamState)
+    scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
+    collection_state: CollectionState = Field(default_factory=CollectionState)
     missing_fields: list[str] = Field(default_factory=list)
+    validation_errors_by_stage: dict[str, list[str]] = Field(default_factory=dict)
+    pending_question: str | None = None
     or_result: ORResult | None = None
     explanation: str | None = None
     errors: list[str] = Field(default_factory=list)
@@ -113,10 +128,7 @@ class LLMResponse(BaseModel):
 
 
 class ExtractionResult(BaseModel):
-    """Результат извлечения параметров из пользовательского текста.
-
-    Может содержать как успешные значения коэффициентов, так и предупреждения/ошибки.
-    """
+    """Legacy-результат extraction (сохранён для совместимости старых тестов)."""
 
     demand_multiplier: float | None = Field(default=None, gt=0, le=2)
     resource_multiplier: float | None = Field(default=None, gt=0, le=2)

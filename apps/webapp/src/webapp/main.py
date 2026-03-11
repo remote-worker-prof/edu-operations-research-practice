@@ -32,8 +32,10 @@ service = AgentService()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 MISSING_FIELD_LABELS = {
-    "demand_multiplier": "Коэффициент спроса",
-    "resource_multiplier": "Коэффициент ресурсов",
+    "production": "1) Production",
+    "shipment": "2) Shipment",
+    "assignment": "3) Assignment",
+    "routing": "4) Routing",
 }
 
 

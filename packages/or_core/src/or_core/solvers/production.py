@@ -20,31 +20,19 @@ def solve_production(data: ProductionInput) -> ProductionOutput:
     Зачем:
     - вычислить оптимальные объёмы выпуска и доступные паллеты для следующего этапа.
     """
+    product_count = len(data.products)
     c = -np.array(data.profits, dtype=float)
-    a_ub = np.array(
-        [
-            data.resource_matrix[0],
-            data.resource_matrix[1],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        ],
-        dtype=float,
-    )
-    b_ub = np.array(
-        [
-            data.resource_limits[0],
-            data.resource_limits[1],
-            data.demand_upper_bounds[0],
-            data.demand_upper_bounds[1],
-        ],
-        dtype=float,
-    )
+
+    resource_matrix = np.array(data.resource_matrix, dtype=float)
+    demand_upper_bounds = np.diag(np.ones(product_count, dtype=float))
+    a_ub = np.vstack([resource_matrix, demand_upper_bounds])
+    b_ub = np.array([*data.resource_limits, *data.demand_upper_bounds], dtype=float)
 
     result = linprog(
         c=c,
         A_ub=a_ub,
         b_ub=b_ub,
-        bounds=[(0, None), (0, None)],
+        bounds=[(0, None) for _ in range(product_count)],
         method="highs",
     )
 
@@ -52,11 +40,20 @@ def solve_production(data: ProductionInput) -> ProductionOutput:
         detail = result.message if result.message else "unknown LP failure"
         raise ProductionOptimizationError(f"Production LP failed: {detail}")
 
-    x1, x2 = result.x
-    total_pallets = int(round(x1 * data.pallet_factors[0] + x2 * data.pallet_factors[1]))
+    quantities = {
+        product: float(value) for product, value in zip(data.products, result.x, strict=True)
+    }
+    total_pallets = int(
+        round(
+            sum(
+                float(value) * pallet_factor
+                for value, pallet_factor in zip(result.x, data.pallet_factors, strict=True)
+            )
+        )
+    )
 
     return ProductionOutput(
-        quantities={data.products[0]: float(x1), data.products[1]: float(x2)},
+        quantities=quantities,
         objective_value=float(-result.fun),
         total_pallets=total_pallets,
         solver_status=result.message,

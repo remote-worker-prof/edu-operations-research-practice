@@ -93,8 +93,27 @@ uv run --all-packages pytest
 - Local: `LOCAL_LLM_BASE_URL`, опционально `LOCAL_LLM_MODEL`, `LOCAL_LLM_API_KEY`
 
 Если провайдер недоступен, приложение продолжает работу с fallback-логикой:
-- извлечение параметров идёт через локальный парсер;
+- сбор структурированных OR-входов идёт через детерминированный parser/wizard;
 - объяснение результата строится детерминированным шаблоном.
+
+## Интерактивный сбор OR-входов
+
+Перед запуском OR-подграфа пользователь заполняет все независимые входы в чате.
+Основные команды:
+
+```bash
+start
+show input
+json <stage> { ... }
+set <stage>.<field> <value>
+edit <stage>
+next
+load preset demo
+run
+```
+
+`data/scenarios/base_scenario.json` используется только как опциональный preset (`load preset demo`),
+а не как обязательная автоподстановка runtime.
 
 ## API
 
@@ -109,6 +128,7 @@ uv run --all-packages pytest
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
+- `docs/epics/interactive_or_input_epic.md` — epic по интерактивному сбору OR-входов.
 
 ## Как читать код студенту
 
@@ -116,10 +136,10 @@ uv run --all-packages pytest
 
 1. Начать с [apps/webapp/src/webapp/main.py](/home/sorcerer/Projects/edu-operations-research-practice/apps/webapp/src/webapp/main.py): какие есть endpoints и как создаётся `AgentService`.
 2. Перейти к [packages/agent_core/src/agent_core/service.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/service.py): как обрабатывается один ход диалога.
-3. Изучить [packages/agent_core/src/agent_core/dialog_graph.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/dialog_graph.py): логика ветвления `extract -> ask/run -> explain/error`.
-4. Посмотреть [packages/agent_core/src/agent_core/extractor.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/extractor.py) и [packages/agent_core/src/agent_core/explainer.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/explainer.py): extraction и fallback-пояснение.
-5. Затем прочитать [packages/or_core/src/or_core/pipeline.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/pipeline.py): последовательность 4 OR-этапов.
-6. Углубиться в солверы в [packages/or_core/src/or_core/solvers](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/solvers): `production`, `shipment`, `assignment`, `routing`.
+3. Изучить [packages/agent_core/src/agent_core/dialog_graph.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/dialog_graph.py): логика ветвления `collect -> run -> explain/error`.
+4. Посмотреть [packages/agent_core/src/agent_core/input_parser.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/input_parser.py) и [packages/agent_core/src/agent_core/explainer.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/agent_core/src/agent_core/explainer.py): parser команд и fallback-пояснение.
+5. Затем прочитать [packages/or_core/src/or_core/scenario.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/scenario.py): сборка `ORPipelineInput` из draft и загрузка preset.
+6. Углубиться в [packages/or_core/src/or_core/pipeline.py](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/pipeline.py) и солверы в [packages/or_core/src/or_core/solvers](/home/sorcerer/Projects/edu-operations-research-practice/packages/or_core/src/or_core/solvers).
 7. Закрепить понимание через интеграционные тесты в [tests/integration/test_api.py](/home/sorcerer/Projects/edu-operations-research-practice/tests/integration/test_api.py).
 
 ## Docker (опционально)

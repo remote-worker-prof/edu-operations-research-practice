@@ -13,10 +13,10 @@ def test_dialog_graph_missing_fields(agent_service) -> None:
     - граф может ошибочно запускать OR-пайплайн без полного набора параметров.
     """
     # Arrange / Act
-    turn = agent_service.handle_turn(ChatTurnRequest(model_alias="local_default", message="Привет"))
+    turn = agent_service.handle_turn(ChatTurnRequest(model_alias="local_default", message="start"))
 
     # Assert
-    assert "укажите параметры" in turn.assistant_message.lower()
+    assert "production" in turn.assistant_message.lower()
     assert turn.session.or_result is None
 
 
@@ -27,8 +27,15 @@ def test_dialog_graph_happy_path(agent_service) -> None:
     - нарушение порядка узлов графа и потеря финального `execution_trace`.
     """
     # Arrange / Act
+    preset_turn = agent_service.handle_turn(
+        ChatTurnRequest(model_alias="local_default", message="load preset demo")
+    )
     turn = agent_service.handle_turn(
-        ChatTurnRequest(model_alias="local_default", message="спрос 1.0 ресурс 1.0")
+        ChatTurnRequest(
+            session_id=preset_turn.session.session_id,
+            model_alias="local_default",
+            message="run",
+        )
     )
 
     # Assert

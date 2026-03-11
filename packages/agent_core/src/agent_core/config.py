@@ -171,7 +171,7 @@ def default_scenario_path() -> Path:
 
     Ошибки:
     - не генерирует исключений при обычном формировании пути;
-    - ошибки чтения сценария обрабатываются в `ScenarioBuilder`.
+    - ошибки чтения сценария обрабатываются в `ScenarioPresetLoader`.
 
     Пример:
     - при пустом окружении вернёт `data/scenarios/base_scenario.json`.
