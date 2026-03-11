@@ -191,7 +191,35 @@
 4. Итоговый балл и баллы по C1/C2/C3 присутствуют: **да**.
 5. Сквозной путь `chat -> extraction -> OR pipeline -> explanation` подтверждён кодом и интеграционными тестами (`packages/agent_core/src/agent_core/dialog_graph.py`, `tests/integration/test_api.py`): **да**.
 
-## 6) Типы артефактов review
+## 6) Remediation governance (Agile graph)
+
+На 2026-03-11 backlog из findings F01-F08 переведён в управляемый beads-граф.
+
+- Umbrella epic: `eorp-t1p` (`CRv1 Remediation Program`, `in_progress`).
+- Criterion epics: `eorp-3ux` (`C1`), `eorp-l7d` (`C2`), `eorp-f7k` (`C3`), все в `in_progress`.
+- Work-issues типизированы по смыслу: `bug|feature|task|chore`.
+- Общие labels для всех work-issues: `review:v1`, `track:remediation`, плюс `criterion:C*`, `finding:F*`, `severity:S*`.
+
+Согласованный DAG блокеров:
+
+1. `eorp-4q2` blocks `eorp-23o`.
+2. `eorp-z0l` blocks `eorp-992`.
+3. `eorp-wiu` blocks `eorp-992`, `eorp-8e7`, `eorp-gr5`.
+4. `eorp-z0l`, `eorp-4q2`, `eorp-23o`, `eorp-wiu`, `eorp-992` block `eorp-pdk`.
+
+Ожидаемые execution waves для `bd ready`:
+
+1. Wave 1: `eorp-z0l`, `eorp-4q2`, `eorp-wiu`.
+2. Wave 2: `eorp-23o`, `eorp-992`, `eorp-8e7`, `eorp-gr5`.
+3. Wave 3: `eorp-pdk`.
+
+Проверки governance:
+
+- `bd dep cycles` -> циклов нет.
+- `bd blocked` -> блокировки соответствуют DAG (включая `eorp-pdk`).
+- `bd ready` -> только Wave 1 work-items.
+
+## 7) Типы артефактов review
 
 ```text
 ReviewFinding:
