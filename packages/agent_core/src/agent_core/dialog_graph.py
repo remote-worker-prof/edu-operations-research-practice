@@ -15,7 +15,16 @@ from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 from agent_core.explainer import explain_result_for_student
 from agent_core.input_parser import parse_user_command
 from agent_core.llm import LLMClient
-from agent_core.models import STAGE_ORDER, AgentSession, ChatMessage, CommandResult, StageName
+from agent_core.models import (
+    STAGE_ORDER,
+    AgentSession,
+    CandidatePatch,
+    ChatMessage,
+    CommandResult,
+    NLParseResult,
+    StageName,
+)
+from agent_core.nl_parser import parse_nl_turn, teaching_hints_for_patches
 
 STAGE_LABELS: dict[StageName, str] = {
     "production": "Production",
@@ -151,8 +160,30 @@ def _recompute_collection_state(
         session.collection_state.current_stage = _next_missing_stage(session)
 
 
+def _sync_phase_and_summary(session: AgentSession) -> None:
+    """Синхронизирует фазу диалога и учебный pre-run summary."""
+    if session.confirmation_state.pending_patches:
+        session.collection_state.phase = "awaiting_confirmation"
+    elif session.collection_state.ready_to_run:
+        session.collection_state.phase = "ready_to_run"
+    else:
+        session.collection_state.phase = "drafting"
+
+    if session.collection_state.ready_to_run and not session.confirmation_state.pending_patches:
+        session.pre_run_summary = (
+            "Перед запуском готовы все 4 этапа: Production -> Shipment -> Assignment -> Routing. "
+            "После `run` вы получите численное решение и объяснение."
+        )
+    else:
+        session.pre_run_summary = None
+
+
 def _pending_question(session: AgentSession) -> str:
     """Возвращает следующий системный вопрос пользователю по текущему состоянию."""
+    if session.confirmation_state.pending_patches:
+        return "Подтвердите извлечённые параметры ответом `да` или `нет`."
+    if session.nl_uncertainties:
+        return session.nl_uncertainties[0]
     if session.collection_state.ready_to_run:
         return "Входы валидны. Для запуска расчёта отправьте `run`."
     stage = _next_missing_stage(session)
@@ -165,6 +196,124 @@ def _invalidate_cached_result(session: AgentSession) -> None:
     """Сбрасывает кэш результата при изменении входов."""
     session.or_result = None
     session.explanation = None
+    session.pre_run_summary = None
+
+
+def _clear_nl_context(session: AgentSession) -> None:
+    """Очищает transient-состояние NL-интерпретации."""
+    session.nl_uncertainties = []
+    session.nl_confidence = None
+    session.teaching_hints = []
+
+
+def _clear_pending_confirmation(session: AgentSession) -> None:
+    """Сбрасывает неподтверждённые candidate patches."""
+    session.confirmation_state.pending_patches = []
+
+
+def _format_candidate_patches(patches: list[CandidatePatch]) -> str:
+    """Формирует человекочитаемое представление candidate patches."""
+    rows = [f"- {patch.stage}.{patch.field_path} = {patch.value!r}" for patch in patches]
+    return "\n".join(rows)
+
+
+def _apply_candidate_patch(session: AgentSession, patch: CandidatePatch) -> None:
+    """Применяет один подтверждённый patch к scenario draft."""
+    payload = dict(_stage_payload_ref(session, patch.stage))
+    _set_nested(payload, patch.field_path, patch.value)
+    _apply_stage_payload(session, patch.stage, payload)
+    session.collection_state.current_stage = patch.stage
+
+
+def _handle_nl_turn(
+    *,
+    session: AgentSession,
+    nl_result: NLParseResult,
+    deps: DialogGraphDeps,
+) -> CollectOutcome:
+    """Обрабатывает NL-результат до fallback в command parser."""
+    if nl_result.intent == "confirm":
+        pending = session.confirmation_state.pending_patches
+        if not pending:
+            return CollectOutcome(
+                assistant_message=(
+                    "Сейчас нет параметров на подтверждение. Введите данные для этапа."
+                )
+            )
+        for patch in pending:
+            _apply_candidate_patch(session, patch)
+        session.confirmation_state.confirmed_patches.extend(pending)
+        recent_patches = session.confirmation_state.confirmed_patches[-len(pending) :]
+        _clear_pending_confirmation(session)
+        _clear_nl_context(session)
+        session.collection_state.mode = "nl"
+        return CollectOutcome(
+            assistant_message=(
+                "Параметры подтверждены и применены.\n"
+                "Кратко:\n"
+                f"{_format_candidate_patches(recent_patches)}"
+            ),
+            draft_changed=True,
+        )
+
+    if nl_result.intent == "reject":
+        _clear_pending_confirmation(session)
+        _clear_nl_context(session)
+        session.collection_state.mode = "nl"
+        return CollectOutcome(
+            assistant_message=(
+                "Принято, не применяю candidate patches. "
+                "Уточните один параметр в формате: `stage поле значение`."
+            )
+        )
+
+    if nl_result.intent == "run":
+        command_result = CommandResult(action="run")
+        return _dispatch_collect_action(session=session, result=command_result, deps=deps)
+
+    if nl_result.intent == "help":
+        session.collection_state.mode = "nl"
+        return CollectOutcome(
+            assistant_message=(
+                "Пишите свободно, например: "
+                '`производство прибыль [40,30], продукты ["A","B"]`. '
+                "Я покажу, что понял, и попрошу подтверждение `да/нет`."
+            )
+        )
+
+    if nl_result.intent != "patch":
+        return CollectOutcome()
+
+    session.collection_state.mode = "nl"
+    session.nl_confidence = nl_result.confidence
+    session.nl_uncertainties = nl_result.uncertainties
+    session.teaching_hints = teaching_hints_for_patches(nl_result.candidate_patches)
+
+    if nl_result.uncertainties:
+        return CollectOutcome(
+            assistant_message=(
+                f"{nl_result.uncertainties[0]}\n"
+                "Если удобнее, используйте безопасный fallback: `json <stage> {...}` "
+                "или `set <stage>.<field> <value>`."
+            )
+        )
+
+    if not nl_result.candidate_patches:
+        return CollectOutcome(
+            assistant_message=(
+                "Пока не удалось извлечь поля из сообщения. "
+                "Добавьте stage и значения параметров в одном сообщении."
+            )
+        )
+
+    session.confirmation_state.pending_patches = nl_result.candidate_patches
+    return CollectOutcome(
+        assistant_message=(
+            f"Я извлёк параметры (confidence={nl_result.confidence:.2f}):\n"
+            f"{_format_candidate_patches(nl_result.candidate_patches)}\n"
+            "Подтвердите `да` или отклоните `нет`."
+        )
+    )
 
 
 def _handle_start(
@@ -176,6 +325,9 @@ def _handle_start(
     del result, deps
     session.scenario_draft = session.scenario_draft.__class__()
     session.collection_state.current_stage = "production"
+    session.collection_state.mode = "wizard"
+    _clear_pending_confirmation(session)
+    _clear_nl_context(session)
     return CollectOutcome(assistant_message=_stage_prompt("production"), draft_changed=True)
 
 
@@ -189,6 +341,9 @@ def _handle_reset(
     session.scenario_draft = session.scenario_draft.__class__()
     session.collection_state.current_stage = "production"
     session.scenario_draft.preset_ref = None
+    session.collection_state.mode = "wizard"
+    _clear_pending_confirmation(session)
+    _clear_nl_context(session)
     return CollectOutcome(
         assistant_message="Черновик сброшен. " + _stage_prompt("production"),
         draft_changed=True,
@@ -204,6 +359,9 @@ def _handle_load_preset(
     if result.preset_ref != "demo":
         return CollectOutcome(assistant_message="Ошибка ввода: неизвестный preset.")
     session.scenario_draft = deps.preset_loader.load_demo_draft()
+    session.collection_state.mode = "wizard"
+    _clear_pending_confirmation(session)
+    _clear_nl_context(session)
     return CollectOutcome(
         assistant_message=(
             "Загружен demo preset. Проверьте ввод командой `show input` и запустите `run`."
@@ -222,6 +380,7 @@ def _handle_edit_stage(
     if result.stage is None:
         return CollectOutcome(assistant_message="Ошибка ввода: не указан stage для edit.")
     session.collection_state.current_stage = result.stage
+    session.collection_state.mode = "wizard"
     return CollectOutcome(assistant_message=_stage_prompt(result.stage))
 
 
@@ -238,6 +397,9 @@ def _handle_stage_json(
         return CollectOutcome(assistant_message="Ошибка ввода: JSON patch должен быть объектом.")
     _apply_stage_payload(session, result.patch.stage, result.patch.payload)
     session.collection_state.current_stage = result.patch.stage
+    session.collection_state.mode = "json"
+    _clear_pending_confirmation(session)
+    _clear_nl_context(session)
     return CollectOutcome(
         assistant_message=f"Stage {STAGE_LABELS[result.patch.stage]} обновлён JSON-объектом.",
         draft_changed=True,
@@ -259,6 +421,9 @@ def _handle_set_field(
     _set_nested(payload, result.patch.path, result.patch.value)
     _apply_stage_payload(session, result.patch.stage, payload)
     session.collection_state.current_stage = result.patch.stage
+    session.collection_state.mode = "wizard"
+    _clear_pending_confirmation(session)
+    _clear_nl_context(session)
     return CollectOutcome(
         assistant_message=(
             f"Поле {result.patch.stage}.{result.patch.path} обновлено. "
@@ -289,6 +454,7 @@ def _handle_next(
 ) -> CollectOutcome:
     del result, deps
     next_stage = _next_missing_stage(session)
+    session.collection_state.mode = "wizard"
     if next_stage is None:
         return CollectOutcome(
             assistant_message="Все stage заполнены. Выполните `run` для запуска OR-пайплайна."
@@ -304,6 +470,13 @@ def _handle_run(
     deps: DialogGraphDeps,
 ) -> CollectOutcome:
     del result
+    if session.confirmation_state.pending_patches:
+        return CollectOutcome(
+            assistant_message=(
+                "Нельзя запускать расчёт с неподтверждёнными NL-параметрами. "
+                "Ответьте `да` или `нет`."
+            )
+        )
     _recompute_collection_state(session=session, assembler=deps.scenario_assembler)
     if session.collection_state.ready_to_run:
         return CollectOutcome(should_run=True)
@@ -379,14 +552,20 @@ def _collect_inputs_node(
     """Разбирает реплику, обновляет draft и формирует следующий вопрос."""
     session = state["session"].model_copy(deep=True)
     text = state["user_message"]
-    result = parse_user_command(message=text, current_stage=session.collection_state.current_stage)
-
-    outcome = _dispatch_collect_action(session=session, result=result, deps=deps)
+    nl_result = parse_nl_turn(message=text, current_stage=session.collection_state.current_stage)
+    if nl_result.intent != "none":
+        outcome = _handle_nl_turn(session=session, nl_result=nl_result, deps=deps)
+    else:
+        result = parse_user_command(
+            message=text, current_stage=session.collection_state.current_stage
+        )
+        outcome = _dispatch_collect_action(session=session, result=result, deps=deps)
 
     if outcome.draft_changed:
         _invalidate_cached_result(session)
 
     _recompute_collection_state(session=session, assembler=deps.scenario_assembler)
+    _sync_phase_and_summary(session)
     session.pending_question = _pending_question(session)
 
     assistant_message = outcome.assistant_message
@@ -418,14 +597,17 @@ def _run_or_subgraph_node(
 ) -> DialogGraphState:
     """Запускает OR-пайплайн, только если draft полностью валиден и подтверждён."""
     session = state["session"].model_copy(deep=True)
+    session.collection_state.phase = "running"
     try:
         runtime_input = deps.scenario_assembler.build_from_draft(session.scenario_draft)
         session.or_result = deps.or_pipeline.run(runtime_input)
         session.errors = []
         session.collection_state.ready_to_run = True
+        _sync_phase_and_summary(session)
     except (ScenarioValidationError, ORPipelineError) as exc:
         session.errors = [str(exc)]
         session.or_result = None
+        session.collection_state.phase = "drafting"
     return {"session": session}
 
 

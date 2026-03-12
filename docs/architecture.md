@@ -52,13 +52,17 @@
 1. Пользователь отправляет сообщение в `webapp`.
 2. `AgentService.handle_turn()` поднимает/получает сессию и вызывает `DialogGraph`.
 3. Узел `collect_inputs`:
-  - парсит детерминированные команды (`start`, `json`, `set`, `run`, ...);
+  - сначала пытается интерпретировать свободный текст через `parse_nl_turn`;
+  - формирует `candidate patches`, confidence и уточнения;
+  - применяет patch только после явного подтверждения `да/нет`;
+  - при необходимости переключается на детерминированные команды (`start`, `json`, `set`, `run`, ...);
   - обновляет `ScenarioDraft`;
   - валидирует stage и вычисляет `ready_to_run`.
 4. Пока `ready_to_run = false`, агент продолжает задавать уточняющие вопросы по stage.
 5. По явной команде `run` и при `ready_to_run = true` узел `run_or_subgraph`:
   - собирает `ORPipelineInput` из `ScenarioDraft`;
   - запускает 4 OR-этапа.
+  - запуск блокируется, если есть неподтверждённые `candidate patches`.
 6. Узел `explain`:
   - пытается получить объяснение через LLM;
   - при недоступности провайдера использует детерминированный fallback.
@@ -107,6 +111,9 @@
 - Невалидный stage input:
   - не приводит к 500;
   - отображается в `validation_errors_by_stage` и `pending_question`.
+- Неоднозначная NL-интерпретация:
+  - не применяется автоматически;
+  - отображается в `nl_uncertainties` и переводит диалог в уточняющий шаг.
 - Ошибка OR-пайплайна:
   - сохраняется в `session.errors`;
   - пользователю возвращается корректный assistant-response с описанием ошибки.
@@ -148,4 +155,5 @@
 - `docs/dev_build_run.md` — локальный/dev/docker запуск.
 - `docs/git_ssh_github.md` — Git/SSH/GitHub workflow для репозитория.
 - `docs/or_subgraph_math.md` — краткая формализация оптимизационных моделей OR-подграфа.
+- `docs/natural_language_assistant_ru.md` — учебный контракт NL-режима (реплика -> patch -> подтверждение).
 - `docs/epics/interactive_or_input_epic.md` — план и контракт интерактивного сбора входов.

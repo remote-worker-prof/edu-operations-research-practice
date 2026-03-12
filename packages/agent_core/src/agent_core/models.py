@@ -39,7 +39,8 @@ class ChatMessage(BaseModel):
 class CollectionState(BaseModel):
     """Текущее состояние интерактивного сбора входов OR-подграфа."""
 
-    mode: Literal["wizard", "json"] = "wizard"
+    mode: Literal["wizard", "json", "nl"] = "wizard"
+    phase: Literal["drafting", "awaiting_confirmation", "ready_to_run", "running"] = "drafting"
     current_stage: StageName | None = "production"
     ready_to_run: bool = False
 
@@ -51,6 +52,41 @@ class InputPatch(BaseModel):
     payload: dict[str, Any] | None = None
     path: str | None = None
     value: Any = None
+
+
+class CandidatePatch(BaseModel):
+    """Кандидат на обновление draft, извлечённый из естественного языка."""
+
+    stage: StageName
+    field_path: str
+    value: Any
+    source_text: str
+
+
+class ConfirmationState(BaseModel):
+    """Состояние подтверждения извлечённых NL-патчей."""
+
+    pending_patches: list[CandidatePatch] = Field(default_factory=list)
+    confirmed_patches: list[CandidatePatch] = Field(default_factory=list)
+
+
+class TeachingHint(BaseModel):
+    """Учебная подсказка по конкретному параметру OR-модели."""
+
+    field: str
+    meaning: str
+    units: str
+    example: str
+
+
+class NLParseResult(BaseModel):
+    """Результат интерпретации свободной реплики в структурированный intent."""
+
+    intent: Literal["none", "patch", "confirm", "reject", "run", "help"]
+    candidate_patches: list[CandidatePatch] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    source_text: str = ""
 
 
 class CommandResult(BaseModel):
@@ -90,8 +126,13 @@ class AgentSession(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)
+    confirmation_state: ConfirmationState = Field(default_factory=ConfirmationState)
     missing_fields: list[StageName] = Field(default_factory=list)
     validation_errors_by_stage: dict[str, list[str]] = Field(default_factory=dict)
+    teaching_hints: list[TeachingHint] = Field(default_factory=list)
+    nl_uncertainties: list[str] = Field(default_factory=list)
+    nl_confidence: float | None = None
+    pre_run_summary: str | None = None
     pending_question: str | None = None
     or_result: ORResult | None = None
     explanation: str | None = None

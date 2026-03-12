@@ -264,7 +264,125 @@ def test_api_chat_turn_invalid_command_return_user_errors(monkeypatch) -> None:
     payload = response.json()
     assert payload["session"]["or_result"] is None
     assert payload["assistant_message"]
-    assert "Ошибка ввода" in payload["assistant_message"]
+    assert (
+        "Ошибка ввода" in payload["assistant_message"]
+        or "stage" in payload["assistant_message"].lower()
+    )
+
+
+def test_nl_happy_path_confirmation_and_run() -> None:
+    """Проверяет NL-путь: извлечение -> подтверждение -> запуск расчёта.
+
+    Риск:
+    - natural-language путь может не собирать полный draft и не доходить до run.
+    """
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    turns = [
+        (
+            'production products ["A","B"], profits [40,30], '
+            "resource_matrix [[2,1],[1,1.5]], resource_limits [240,180], "
+            "demand_upper_bounds [70,80], pallet_factors [1.0,0.8]"
+        ),
+        "да",
+        (
+            'shipment warehouses ["W1","W2"], warehouse_supply_ratio [0.55,0.45], '
+            'clients ["C1","C2","C3"], client_demand [42,38,40], '
+            "cost_matrix [[4,6,8],[5,4,3]], capacity_matrix [[50,45,40],[40,45,50]]"
+        ),
+        "да",
+        (
+            'assignment resources ["truck_1","truck_2","truck_3"], '
+            "cost_matrix [[8,6,7],[5,8,6],[7,5,9]]"
+        ),
+        "да",
+        (
+            "routing distance_matrix [[0,10,12,8],[10,0,6,7],[12,6,0,9],[8,7,9,0]], "
+            "depot_index 0, client_nodes [1,2,3], vehicle_capacities [55,45,45]"
+        ),
+        "да",
+        "запусти расчёт",
+    ]
+
+    last_payload = None
+    for message in turns:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "openai_default",
+                "message": message,
+            },
+        )
+        assert response.status_code == 200
+        last_payload = response.json()
+
+    assert last_payload is not None
+    assert last_payload["session"]["or_result"] is not None
+    assert last_payload["session"]["collection_state"]["phase"] in {"ready_to_run", "running"}
+
+
+def test_nl_ambiguity_asks_one_precise_question() -> None:
+    """Проверяет, что неоднозначная реплика не применяется без уточнения.
+
+    Риск:
+    - агент может испортить draft, если применит неуверенное извлечение.
+    """
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "openai_default",
+            "message": "для production и shipment задай cost_matrix [[1,2],[2,1]]",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session"]["confirmation_state"]["pending_patches"] == []
+    assert payload["session"]["nl_uncertainties"]
+    assert "несколько stages" in payload["assistant_message"].lower()
+
+
+def test_run_blocked_when_nl_patches_not_confirmed() -> None:
+    """Проверяет safety-блокировку run при неподтверждённых NL-патчах.
+
+    Риск:
+    - система может запустить OR на непроверенных параметрах.
+    """
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    patch_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": 'production profits [40,30], products ["A","B"]',
+        },
+    )
+    assert patch_turn.status_code == 200
+    assert patch_turn.json()["session"]["confirmation_state"]["pending_patches"]
+
+    run_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": "run",
+        },
+    )
+    assert run_turn.status_code == 200
+    payload = run_turn.json()
+    assert payload["session"]["or_result"] is None
+    assert "неподтверждёнными" in payload["assistant_message"]
 
 
 def test_api_chat_turn_or_pipeline_error(monkeypatch) -> None:

@@ -3,6 +3,7 @@
     <h2>Параметры и результаты</h2>
     <div class="kv"><span>Сессия</span><strong>{{ session.session_id }}</strong></div>
     <div class="kv"><span>Режим ввода</span><strong>{{ session.collection_state.mode }}</strong></div>
+    <div class="kv"><span>Фаза диалога</span><strong>{{ session.collection_state.phase }}</strong></div>
     <div class="kv"><span>Текущий stage</span><strong>{{ session.collection_state.current_stage or "-" }}</strong></div>
     <div class="kv"><span>Готово к run</span><strong>{{ "Да" if session.collection_state.ready_to_run else "Нет" }}</strong></div>
     {% if session.scenario_draft.preset_ref %}
@@ -37,6 +38,51 @@
       <div class="card">
         <strong>Следующий шаг:</strong>
         <div>{{ session.pending_question }}</div>
+      </div>
+    {% endif %}
+
+    {% if session.confirmation_state.pending_patches %}
+      <div class="card warn">
+        <strong>Ожидается подтверждение NL-параметров:</strong>
+        {% for patch in session.confirmation_state.pending_patches %}
+          <div>{{ patch.stage }}.{{ patch.field_path }} = {{ patch.value }}</div>
+        {% endfor %}
+        <div>Ответьте в чате: <code>да</code> или <code>нет</code>.</div>
+      </div>
+    {% endif %}
+
+    {% if session.nl_confidence is not none %}
+      <div class="card">
+        <strong>Уверенность интерпретации:</strong>
+        <div>{{ "%.2f"|format(session.nl_confidence) }}</div>
+      </div>
+    {% endif %}
+
+    {% if session.nl_uncertainties %}
+      <div class="card warn">
+        <strong>Нужно уточнение:</strong>
+        {% for item in session.nl_uncertainties %}
+          <div>{{ item }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if session.teaching_hints %}
+      <div class="card">
+        <strong>Подсказки для студента:</strong>
+        {% for hint in session.teaching_hints %}
+          <div><strong>{{ hint.field }}</strong></div>
+          <div>Что это: {{ hint.meaning }}</div>
+          <div>Единицы: {{ hint.units }}</div>
+          <div>Пример: <code>{{ hint.example }}</code></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if session.pre_run_summary %}
+      <div class="card">
+        <strong>Предрасчётный конспект:</strong>
+        <div>{{ session.pre_run_summary }}</div>
       </div>
     {% endif %}
 
@@ -116,6 +162,7 @@
         <div class="msg assistant">
           Привет. Введите <code>start</code>, затем по шагам заполните stages.
           Можно быстро загрузить demo-профиль: <code>load preset demo</code>.
+          Можно писать свободно: я извлеку параметры и попрошу подтверждение.
         </div>
       {% endif %}
     </div>
@@ -133,7 +180,7 @@
         <input
           name="message"
           type="text"
-          placeholder="Команда: start | json <stage> {...} | set <stage>.<field> <value> | run"
+          placeholder="Свободный текст или команда: start | json <stage> {...} | set <stage>.<field> <value> | run"
           autocomplete="off"
           required
         />

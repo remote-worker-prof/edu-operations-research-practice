@@ -99,6 +99,10 @@ uv run --all-packages pytest
 ## Интерактивный сбор OR-входов
 
 Перед запуском OR-подграфа пользователь заполняет все независимые входы в чате.
+Можно работать в двух режимах:
+- natural-language: свободная реплика -> candidate patches -> подтверждение `да/нет`;
+- command fallback: явные команды для точного контроля.
+
 Основные команды:
 
 ```bash
@@ -128,6 +132,7 @@ run
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
+- `docs/natural_language_assistant_ru.md` — как работает NL-режим и как исправлять интерпретацию в чате.
 - `docs/epics/interactive_or_input_epic.md` — epic по интерактивному сбору OR-входов.
 
 ## Как читать код студенту
