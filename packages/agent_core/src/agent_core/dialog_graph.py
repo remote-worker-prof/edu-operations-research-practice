@@ -59,6 +59,8 @@ _STAGE_EXAMPLES: dict[StageName, str] = {
     ),
 }
 
+_MAX_CONFIRMED_PATCHES = 64
+
 
 class DialogGraphState(TypedDict, total=False):
     """Состояние узлов диалогового графа."""
@@ -204,6 +206,44 @@ def _clear_nl_context(session: AgentSession) -> None:
     session.nl_uncertainties = []
     session.nl_confidence = None
     session.teaching_hints = []
+    session.pending_question = None
+
+
+def _candidate_patch_key(patch: CandidatePatch) -> tuple[str, str, str]:
+    """Строит hashable-ключ patch-а для dedup/retention логики."""
+    try:
+        normalized_value = json.dumps(patch.value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        normalized_value = repr(patch.value)
+    return patch.stage, patch.field_path, normalized_value
+
+
+def _deduplicate_candidate_patches(patches: list[CandidatePatch]) -> list[CandidatePatch]:
+    """Убирает дубликаты patch-ей, сохраняя последнее значение каждого поля."""
+    ordered: dict[tuple[str, str, str], CandidatePatch] = {}
+    for patch in patches:
+        key = _candidate_patch_key(patch)
+        if key in ordered:
+            del ordered[key]
+        ordered[key] = patch
+    return list(ordered.values())
+
+
+def _store_confirmed_patches(
+    session: AgentSession,
+    patches: list[CandidatePatch],
+) -> None:
+    """Сохраняет подтверждённые patches с dedup и ограничением длины истории."""
+    merged = list(session.confirmation_state.confirmed_patches)
+    existing_index = {_candidate_patch_key(item): idx for idx, item in enumerate(merged)}
+    for patch in patches:
+        key = _candidate_patch_key(patch)
+        if key in existing_index:
+            del merged[existing_index[key]]
+            existing_index = {_candidate_patch_key(item): idx for idx, item in enumerate(merged)}
+        merged.append(patch)
+        existing_index[key] = len(merged) - 1
+    session.confirmation_state.confirmed_patches = merged[-_MAX_CONFIRMED_PATCHES:]
 
 
 def _clear_pending_confirmation(session: AgentSession) -> None:
@@ -240,10 +280,10 @@ def _handle_nl_turn(
                     "Сейчас нет параметров на подтверждение. Введите данные для этапа."
                 )
             )
-        for patch in pending:
+        confirmed_now = _deduplicate_candidate_patches(pending)
+        for patch in confirmed_now:
             _apply_candidate_patch(session, patch)
-        session.confirmation_state.confirmed_patches.extend(pending)
-        recent_patches = session.confirmation_state.confirmed_patches[-len(pending) :]
+        _store_confirmed_patches(session, confirmed_now)
         _clear_pending_confirmation(session)
         _clear_nl_context(session)
         session.collection_state.mode = "nl"
@@ -251,7 +291,7 @@ def _handle_nl_turn(
             assistant_message=(
                 "Параметры подтверждены и применены.\n"
                 "Кратко:\n"
-                f"{_format_candidate_patches(recent_patches)}"
+                f"{_format_candidate_patches(confirmed_now)}"
             ),
             draft_changed=True,
         )
@@ -552,7 +592,12 @@ def _collect_inputs_node(
     """Разбирает реплику, обновляет draft и формирует следующий вопрос."""
     session = state["session"].model_copy(deep=True)
     text = state["user_message"]
-    nl_result = parse_nl_turn(message=text, current_stage=session.collection_state.current_stage)
+    nl_result = parse_nl_turn(
+        message=text,
+        current_stage=session.collection_state.current_stage,
+        llm_client=deps.llm_client,
+        model_alias=session.model_alias,
+    )
     if nl_result.intent != "none":
         outcome = _handle_nl_turn(session=session, nl_result=nl_result, deps=deps)
     else:
@@ -602,6 +647,9 @@ def _run_or_subgraph_node(
         runtime_input = deps.scenario_assembler.build_from_draft(session.scenario_draft)
         session.or_result = deps.or_pipeline.run(runtime_input)
         session.errors = []
+        _clear_pending_confirmation(session)
+        _clear_nl_context(session)
+        session.pending_question = None
         session.collection_state.ready_to_run = True
         _sync_phase_and_summary(session)
     except (ScenarioValidationError, ORPipelineError) as exc:

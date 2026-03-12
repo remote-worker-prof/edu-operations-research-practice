@@ -385,6 +385,152 @@ def test_run_blocked_when_nl_patches_not_confirmed() -> None:
     assert "неподтверждёнными" in payload["assistant_message"]
 
 
+def test_nl_mixed_run_and_parameters_prefers_extraction() -> None:
+    """Проверяет, что mixed-реплика не теряет patch extraction из-за run-интенции.
+
+    Риск:
+    - greedy run-intent может перехватить сообщение с параметрами и не сохранить ввод.
+    """
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    mixed_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": 'запусти production profits [41,31], products ["A","B"]',
+        },
+    )
+    assert mixed_turn.status_code == 200
+    payload = mixed_turn.json()
+    assert payload["session"]["or_result"] is None
+    assert payload["session"]["confirmation_state"]["pending_patches"]
+    assert "Подтвердите `да`" in payload["assistant_message"]
+
+
+def test_nl_state_cleanup_after_successful_run() -> None:
+    """Проверяет очистку stale NL-состояния после успешного расчёта.
+
+    Риск:
+    - после run в сессии могут остаться старые uncertainty/вопросы и путать студента.
+    """
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    ambiguous_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": "для production и shipment задай cost_matrix [[1,2],[2,1]]",
+        },
+    )
+    assert ambiguous_turn.status_code == 200
+    assert ambiguous_turn.json()["session"]["nl_uncertainties"]
+
+    preset_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_turn.status_code == 200
+    assert preset_turn.json()["session"]["nl_uncertainties"] == []
+
+    run_turn = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": "run",
+        },
+    )
+    assert run_turn.status_code == 200
+    payload = run_turn.json()["session"]
+    assert payload["or_result"] is not None
+    assert payload["nl_uncertainties"] == []
+    assert payload["nl_confidence"] is None
+    assert payload["teaching_hints"] == []
+    assert payload["pending_question"] is None
+
+
+def test_confirmed_patches_are_deduplicated_and_bounded() -> None:
+    """Проверяет dedup + bounded-retention для confirmation history.
+
+    Риск:
+    - confirmed_patches может расти без ограничений на длинных учебных сессиях.
+    """
+    start_turn = client.post(
+        "/api/chat/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert start_turn.status_code == 200
+    session_id = start_turn.json()["session"]["session_id"]
+
+    first_patch = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": 'production profits [40,30], products ["A","B"]',
+        },
+    )
+    assert first_patch.status_code == 200
+    first_confirm = client.post(
+        "/api/chat/turn",
+        json={"session_id": session_id, "model_alias": "openai_default", "message": "да"},
+    )
+    assert first_confirm.status_code == 200
+    initial_len = len(first_confirm.json()["session"]["confirmation_state"]["confirmed_patches"])
+
+    same_patch = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "openai_default",
+            "message": 'production profits [40,30], products ["A","B"]',
+        },
+    )
+    assert same_patch.status_code == 200
+    same_confirm = client.post(
+        "/api/chat/turn",
+        json={"session_id": session_id, "model_alias": "openai_default", "message": "да"},
+    )
+    assert same_confirm.status_code == 200
+    dedup_len = len(same_confirm.json()["session"]["confirmation_state"]["confirmed_patches"])
+    assert dedup_len == initial_len
+
+    for idx in range(70):
+        patch_turn = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "openai_default",
+                "message": f'production profits [{100 + idx},30], products ["A","B"]',
+            },
+        )
+        assert patch_turn.status_code == 200
+        confirm_turn = client.post(
+            "/api/chat/turn",
+            json={"session_id": session_id, "model_alias": "openai_default", "message": "да"},
+        )
+        assert confirm_turn.status_code == 200
+
+    bounded_payload = confirm_turn.json()["session"]["confirmation_state"]["confirmed_patches"]
+    assert len(bounded_payload) <= 64
+
+
 def test_api_chat_turn_or_pipeline_error(monkeypatch) -> None:
     """Проверяет пользовательскую обработку ошибки OR-пайплайна.
 
