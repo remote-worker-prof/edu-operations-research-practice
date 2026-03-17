@@ -43,6 +43,7 @@ make test-e2e
 make test-e2e-openai
 make test-e2e-openai-demo
 make test-e2e-openai-demo-record
+make test-e2e-openai-video-pack
 make docker-up
 make bd-check
 make bd-import
@@ -107,8 +108,14 @@ Visible OpenAI demo with MP4 recording of the Chromium window:
 make test-e2e-openai-demo-record
 ```
 
-Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`
-и `make test-e2e-openai-demo-record`)
+Full OpenAI video pack with 5 recorded Selenium scenarios:
+
+```bash
+make test-e2e-openai-video-pack
+```
+
+Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`,
+`make test-e2e-openai-demo-record` и `make test-e2e-openai-video-pack`)
 запускаются через login `bash`, чтобы подхватить `OPENAI_API_KEY`
 из `~/.bash_profile`, `~/.profile` или `~/.bashrc`.
 
@@ -128,7 +135,11 @@ Prerequisites и override-переменные для browser harness:
 - `E2E_RECORD_VIDEO=1` — включает запись видимого окна Chromium в MP4.
 - `E2E_VIDEO_OUTPUT_DIR` — каталог для `.mp4` артефактов.
 - `E2E_VIDEO_FPS` — частота кадров при записи окна.
-- `E2E_WINDOW_X`, `E2E_WINDOW_Y`, `E2E_WINDOW_WIDTH`, `E2E_WINDOW_HEIGHT` — детерминированная геометрия окна для записи.
+- `VIDEO_CASE=<slug>` — фильтр одного сценария внутри full video pack.
+
+Запись теперь идёт по реальному X11 `window_id` Chromium, а не по ручному
+координатному crop. Это убирает проблемы HiDPI/scale, когда в MP4 попадал
+только левый верхний фрагмент окна.
 
 Параметры для `make test-e2e-openai-demo` можно переопределять:
 
@@ -136,7 +147,7 @@ Prerequisites и override-переменные для browser harness:
 make test-e2e-openai-demo DEMO_STEP_DELAY=3.5 DEMO_TYPE_DELAY=0.12 DEMO_FINAL_DELAY=12
 ```
 
-Параметры для записи скринкаста тоже можно переопределять:
+Параметры для записи одного ролика можно переопределять:
 
 ```bash
 make test-e2e-openai-demo-record \
@@ -144,15 +155,30 @@ make test-e2e-openai-demo-record \
   DEMO_STEP_DELAY=4 \
   DEMO_TYPE_DELAY=0.14 \
   DEMO_FINAL_DELAY=15 \
-  WINDOW_X=120 WINDOW_Y=80 WINDOW_WIDTH=1500 WINDOW_HEIGHT=1100 \
   VIDEO_FPS=20
 ```
 
-Три режима запуска Selenium:
+Полный video pack можно сузить до одного сценария:
+
+```bash
+make test-e2e-openai-video-pack VIDEO_CASE=manual_json_flow
+```
+
+Доступные recorded OpenAI video scenarios:
+
+- `preset_overview`
+- `manual_json_flow`
+- `nl_confirm_flow`
+- `validation_recovery_flow`
+- `ambiguity_resolution_flow`
+
+Пять основных режимов запуска Selenium:
 
 - `make test-e2e` — быстрый deterministic headless regression suite.
+- `make test-e2e-openai` — быстрый real-provider smoke без записи.
 - `make test-e2e-openai-demo` — видимый demo-запуск с паузами, без записи.
-- `make test-e2e-openai-demo-record` — видимый demo-запуск с записью окна Chromium в MP4.
+- `make test-e2e-openai-demo-record` — видимый demo-запуск с записью одного ролика.
+- `make test-e2e-openai-video-pack` — записывает полный набор из 5 OpenAI роликов.
 
 При падении browser E2E screenshot и HTML page source сохраняются в `.pytest_artifacts/e2e/`.
 MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/videos/` по умолчанию.

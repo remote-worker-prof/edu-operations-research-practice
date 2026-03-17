@@ -1,7 +1,8 @@
-"""Pytest-fixtures для Selenium E2E поверх live FastAPI/HTMX приложения."""
+"""Pytest fixtures для Selenium E2E поверх live FastAPI/HTMX приложения."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -22,6 +23,10 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webapp.main import create_app
 
 from .helpers import ChatPage
+
+_VIDEO_DURATION_TOLERANCE_SECONDS = 1.0
+_MIN_BROWSER_WINDOW_SIDE = 200
+_CLIENT_LIST_ATOMS = ("_NET_CLIENT_LIST_STACKING", "_NET_CLIENT_LIST")
 
 
 def _find_free_port() -> int:
@@ -89,146 +94,376 @@ def _normalize_display(display: str) -> str:
     return display if "." in display else f"{display}.0"
 
 
+def _required_binary(name: str) -> str:
+    """Возвращает путь к системной утилите или завершает тест с понятной ошибкой."""
+    binary = shutil.which(name)
+    if binary is None:
+        pytest.fail(f"E2E video capture requires `{name}` in PATH.")
+    return binary
+
+
+def _run_checked(command: list[str], *, failure_message: str) -> str:
+    """Запускает системную команду и возвращает stdout, иначе завершает тест."""
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:  # pragma: no cover - depends on local tool availability
+        pytest.fail(f"{failure_message}: {exc}")
+    except subprocess.CalledProcessError as exc:  # pragma: no cover - depends on local X11 state
+        stderr = (exc.stderr or exc.stdout or "").strip()
+        pytest.fail(f"{failure_message}: {stderr or exc}")
+    return result.stdout
+
+
+def _descendant_process_ids(root_pid: int) -> set[int]:
+    """Возвращает все дочерние PID-ы процесса, включая корневой PID."""
+    output = _run_checked(
+        ["ps", "-eo", "pid=,ppid="],
+        failure_message="Could not inspect Chromium process tree",
+    )
+    children_by_parent: dict[int, list[int]] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        pid, ppid = (int(part) for part in parts)
+        children_by_parent.setdefault(ppid, []).append(pid)
+
+    descendants = {root_pid}
+    queue = [root_pid]
+    while queue:
+        parent = queue.pop()
+        for child in children_by_parent.get(parent, []):
+            if child in descendants:
+                continue
+            descendants.add(child)
+            queue.append(child)
+    return descendants
+
+
+def _x11_client_window_ids() -> list[int]:
+    """Возвращает top-level X11 window ids для текущего DISPLAY."""
+    xprop = _required_binary("xprop")
+    for atom in _CLIENT_LIST_ATOMS:
+        result = subprocess.run(
+            [xprop, "-root", atom],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            continue
+        window_ids = [int(value, 16) for value in re.findall(r"0x[0-9a-fA-F]+", result.stdout)]
+        if window_ids:
+            return window_ids
+
+    xwininfo = _required_binary("xwininfo")
+    output = _run_checked(
+        [xwininfo, "-root", "-tree"],
+        failure_message="Could not enumerate X11 windows",
+    )
+    return [
+        int(value, 16)
+        for value in re.findall(r'^\s*(0x[0-9a-fA-F]+)\s+"', output, flags=re.MULTILINE)
+    ]
+
+
+def _quoted_values(line: str) -> list[str]:
+    """Извлекает quoted значения из строки вывода `xprop`."""
+    return re.findall(r'"([^"]*)"', line)
+
+
+def _x11_window_properties(window_id: int) -> tuple[int | None, str, str]:
+    """Читает PID, заголовок и WM_CLASS для конкретного X11-окна."""
+    xprop = _required_binary("xprop")
+    result = subprocess.run(
+        [xprop, "-id", hex(window_id), "_NET_WM_PID", "WM_CLASS", "WM_NAME"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None, "", ""
+
+    pid: int | None = None
+    title = ""
+    wm_class = ""
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("_NET_WM_PID"):
+            match = re.search(r"=\s*(\d+)", stripped)
+            if match:
+                pid = int(match.group(1))
+        elif stripped.startswith("WM_CLASS"):
+            values = _quoted_values(stripped)
+            wm_class = " / ".join(values) if values else stripped.split("=", maxsplit=1)[1].strip()
+        elif stripped.startswith("WM_NAME"):
+            values = _quoted_values(stripped)
+            if values:
+                title = values[0]
+            elif "=" in stripped:
+                title = stripped.split("=", maxsplit=1)[1].strip().strip('"')
+    return pid, title, wm_class
+
+
+def _x11_window_geometry(window_id: int) -> tuple[int, int]:
+    """Читает Width/Height для конкретного X11-окна."""
+    xwininfo = _required_binary("xwininfo")
+    output = _run_checked(
+        [xwininfo, "-id", hex(window_id)],
+        failure_message=f"Could not inspect X11 window geometry for {hex(window_id)}",
+    )
+    width_match = re.search(r"Width:\s+(\d+)", output)
+    height_match = re.search(r"Height:\s+(\d+)", output)
+    if width_match is None or height_match is None:
+        pytest.fail(f"Could not parse X11 geometry for window {hex(window_id)}.")
+    return int(width_match.group(1)), int(height_match.group(1))
+
+
+@dataclass(frozen=True)
+class X11WindowInfo:
+    """Метаданные клиентского Chromium-окна в X11."""
+
+    window_id: int
+    pid: int
+    title: str
+    wm_class: str
+    width: int
+    height: int
+
+
 @dataclass
 class BrowserVideoRecorder:
-    """Трекер живого ffmpeg-процесса для записи окна Chromium."""
+    """Живой ffmpeg recorder для текущего Selenium-сценария."""
 
     process: subprocess.Popen[bytes]
     output_path: Path
+    window: X11WindowInfo
+    started_at: float
 
 
-def _start_video_recorder(
-    *,
-    driver,
-    request,
-    e2e_artifacts_dir: Path,
-) -> BrowserVideoRecorder | None:
-    """Запускает mp4-запись браузерного окна через `ffmpeg + x11grab`."""
-    if not _record_video_enabled():
-        return None
-    if _headless_enabled():
-        pytest.fail("E2E_RECORD_VIDEO=1 требует visible browser. Установите E2E_HEADLESS=0.")
+def _resolve_chromium_window(chromedriver_pid: int) -> X11WindowInfo:
+    """Находит реальное Chromium client window по процессному дереву chromedriver."""
+    active_pids = _descendant_process_ids(chromedriver_pid)
+    candidates: list[X11WindowInfo] = []
 
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        pytest.fail("E2E_RECORD_VIDEO=1 требует установленный ffmpeg в PATH.")
-
-    display = os.getenv("DISPLAY")
-    if not display:
-        pytest.fail("E2E_RECORD_VIDEO=1 требует DISPLAY для X11-записи окна Chromium.")
-
-    desired_x = _int_env("E2E_WINDOW_X", 80)
-    desired_y = _int_env("E2E_WINDOW_Y", 60)
-    desired_width = _int_env("E2E_WINDOW_WIDTH", 1440, minimum=320)
-    desired_height = _int_env("E2E_WINDOW_HEIGHT", 1200, minimum=240)
-    fps = _int_env("E2E_VIDEO_FPS", 15, minimum=1)
-
-    driver.set_window_rect(
-        x=desired_x,
-        y=desired_y,
-        width=desired_width,
-        height=desired_height,
-    )
-    time.sleep(0.4)
-    rect = driver.get_window_rect()
-
-    x = int(rect.get("x", desired_x))
-    y = int(rect.get("y", desired_y))
-    width = int(rect.get("width", desired_width))
-    height = int(rect.get("height", desired_height))
-    if width <= 0 or height <= 0:
-        pytest.fail(f"Получен невалидный rect окна Chromium для записи: {rect!r}")
-
-    slug = _node_slug(request.node.nodeid)
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    output_path = _video_output_dir(e2e_artifacts_dir) / f"{slug}-{timestamp}.mp4"
-    capture_target = f"{_normalize_display(display)}+{x},{y}"
-
-    command = [
-        ffmpeg,
-        "-y",
-        "-loglevel",
-        "error",
-        "-f",
-        "x11grab",
-        "-framerate",
-        str(fps),
-        "-video_size",
-        f"{width}x{height}",
-        "-i",
-        capture_target,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(output_path),
-    ]
-
-    try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+    for window_id in _x11_client_window_ids():
+        pid, title, wm_class = _x11_window_properties(window_id)
+        if pid is None or pid not in active_pids:
+            continue
+        normalized = f"{title} {wm_class}".lower()
+        if "clipboard" in normalized or "mutter-x11-frames" in normalized:
+            continue
+        if "chromium" not in normalized and "chrome" not in normalized:
+            continue
+        width, height = _x11_window_geometry(window_id)
+        if width < _MIN_BROWSER_WINDOW_SIDE or height < _MIN_BROWSER_WINDOW_SIDE:
+            continue
+        candidates.append(
+            X11WindowInfo(
+                window_id=window_id,
+                pid=pid,
+                title=title,
+                wm_class=wm_class,
+                width=width,
+                height=height,
+            )
         )
-    except OSError as exc:  # pragma: no cover - environment-specific startup failure
-        pytest.fail(f"Не удалось запустить ffmpeg для записи Selenium-окна: {exc}")
 
-    time.sleep(0.8)
-    if process.poll() is not None:
+    if not candidates:
+        pytest.fail(
+            "Could not resolve a Chromium X11 window for Selenium video capture. "
+            "Make sure DISPLAY is active and Chromium is running in visible mode."
+        )
+
+    return max(candidates, key=lambda item: (item.width * item.height, item.window_id))
+
+
+def _probe_video_metadata(output_path: Path) -> tuple[float, int, int]:
+    """Возвращает duration/width/height из готового mp4 через ffprobe."""
+    ffprobe = _required_binary("ffprobe")
+    output = _run_checked(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_streams",
+            "-show_format",
+            str(output_path),
+        ],
+        failure_message=f"Could not read ffprobe metadata for {output_path}",
+    )
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive parser guard
+        pytest.fail(f"Could not decode ffprobe JSON for {output_path}: {exc}")
+
+    video_stream = next(
+        (stream for stream in payload.get("streams", []) if stream.get("codec_type") == "video"),
+        None,
+    )
+    if video_stream is None:
+        pytest.fail(f"ffprobe did not return a video stream for {output_path}.")
+
+    duration_raw = payload.get("format", {}).get("duration")
+    if duration_raw is None:
+        pytest.fail(f"ffprobe did not return format.duration for {output_path}.")
+
+    return float(duration_raw), int(video_stream["width"]), int(video_stream["height"])
+
+
+class BrowserVideoCaptureController:
+    """Ленивый контроллер записи Selenium-видео после открытия страницы."""
+
+    def __init__(self, *, driver, request, e2e_artifacts_dir: Path) -> None:
+        self.driver = driver
+        self.request = request
+        self.e2e_artifacts_dir = e2e_artifacts_dir
+        self.recorder: BrowserVideoRecorder | None = None
+
+    def start(self) -> None:
+        """Стартует запись, если включён `E2E_RECORD_VIDEO=1`."""
+        if self.recorder is not None or not _record_video_enabled():
+            return
+        if _headless_enabled():
+            pytest.fail("E2E_RECORD_VIDEO=1 requires visible Chromium. Set E2E_HEADLESS=0.")
+
+        ffmpeg = _required_binary("ffmpeg")
+        _required_binary("ffprobe")
+        _required_binary("xprop")
+        _required_binary("xwininfo")
+
+        display = os.getenv("DISPLAY")
+        if not display:
+            pytest.fail("E2E_RECORD_VIDEO=1 requires DISPLAY for X11 window capture.")
+
+        chromedriver_pid = getattr(self.driver, "_e2e_chromedriver_pid", None)
+        if chromedriver_pid is None:
+            pytest.fail("Could not determine chromedriver PID for Selenium video capture.")
+
+        window = _resolve_chromium_window(chromedriver_pid)
+        fps = _int_env("E2E_VIDEO_FPS", 15, minimum=1)
+        slug = _node_slug(self.request.node.nodeid)
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        output_path = _video_output_dir(self.e2e_artifacts_dir) / f"{slug}-{timestamp}.mp4"
+
+        command = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "x11grab",
+            "-framerate",
+            str(fps),
+            "-window_id",
+            str(window.window_id),
+            "-i",
+            _normalize_display(display),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+
+        started_at = time.monotonic()
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+        except OSError as exc:  # pragma: no cover - depends on local ffmpeg startup
+            pytest.fail(f"Could not start ffmpeg for Selenium video capture: {exc}")
+
+        time.sleep(0.4)
+        if process.poll() is not None:
+            stderr = ""
+            if process.stderr is not None:
+                stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
+            pytest.fail(
+                "ffmpeg exited immediately when starting Selenium video capture. "
+                f"Command: {' '.join(command)}. stderr: {stderr or '<empty>'}"
+            )
+
+        self.request.node.user_properties.append(("video_path", str(output_path)))
+        self.request.node.user_properties.append(("x11_window_id", str(window.window_id)))
+        self.recorder = BrowserVideoRecorder(
+            process=process,
+            output_path=output_path,
+            window=window,
+            started_at=started_at,
+        )
+
+    def stop(self) -> None:
+        """Останавливает запись и проверяет размер/длительность итогового mp4."""
+        if self.recorder is None:
+            return
+
+        recorder = self.recorder
+        runtime_seconds = time.monotonic() - recorder.started_at
+        process = recorder.process
+
+        if process.poll() is None and process.stdin is not None:
+            try:
+                process.stdin.write(b"q\n")
+                process.stdin.flush()
+            except OSError:
+                pass
+
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:  # pragma: no cover - defensive cleanup
+                process.kill()
+                process.wait(timeout=5)
+
         stderr = ""
         if process.stderr is not None:
             stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
-        pytest.fail(
-            "ffmpeg завершился сразу после старта записи Selenium-окна. "
-            f"Команда: {' '.join(command)}. stderr: {stderr or '<empty>'}"
+
+        if process.returncode not in {0, None}:
+            pytest.fail(
+                f"ffmpeg exited with code {process.returncode} during Selenium video capture. "
+                f"stderr: {stderr or '<empty>'}"
+            )
+
+        if not recorder.output_path.exists() or recorder.output_path.stat().st_size == 0:
+            pytest.fail(
+                f"Selenium video capture finished without a non-empty mp4: {recorder.output_path}"
+            )
+
+        duration_seconds, width, height = _probe_video_metadata(recorder.output_path)
+        if (width, height) != (recorder.window.width, recorder.window.height):
+            pytest.fail(
+                "Recorded video dimensions do not match the resolved Chromium X11 window. "
+                f"Expected {recorder.window.width}x{recorder.window.height}, got {width}x{height}."
+            )
+        if abs(duration_seconds - runtime_seconds) > _VIDEO_DURATION_TOLERANCE_SECONDS:
+            pytest.fail(
+                "Recorded video duration drifted too far from Selenium runtime. "
+                f"Measured runtime={runtime_seconds:.2f}s, video={duration_seconds:.2f}s."
+            )
+
+        self.request.node.user_properties.append(
+            ("video_duration_seconds", f"{duration_seconds:.2f}")
         )
-
-    request.node.user_properties.append(("video_path", str(output_path)))
-    return BrowserVideoRecorder(process=process, output_path=output_path)
-
-
-def _stop_video_recorder(recorder: BrowserVideoRecorder | None) -> None:
-    """Останавливает ffmpeg и проверяет, что mp4 успешно сохранён."""
-    if recorder is None:
-        return
-
-    process = recorder.process
-    if process.poll() is None and process.stdin is not None:
-        try:
-            process.stdin.write(b"q\n")
-            process.stdin.flush()
-        except OSError:
-            pass
-
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:  # pragma: no cover - defensive cleanup
-            process.kill()
-            process.wait(timeout=5)
-
-    stderr = ""
-    if process.stderr is not None:
-        stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
-
-    if process.returncode not in {0, None}:
-        pytest.fail(
-            f"ffmpeg завершился с кодом {process.returncode} при записи Selenium-окна. "
-            f"stderr: {stderr or '<empty>'}"
-        )
-
-    if not recorder.output_path.exists() or recorder.output_path.stat().st_size == 0:
-        pytest.fail(
-            f"Запись Selenium-окна завершилась без непустого mp4-файла: {recorder.output_path}"
-        )
+        self.recorder = None
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -241,7 +476,7 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.fixture(scope="session")
 def e2e_artifacts_dir() -> Path:
-    """Каталог для screenshot/page-source артефактов Selenium-падений."""
+    """Каталог для screenshot/page-source и video артефактов Selenium."""
     path = Path.cwd() / ".pytest_artifacts" / "e2e"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -284,14 +519,15 @@ def live_server(web_app) -> str:
     yield base_url
 
     server.should_exit = True
-    thread.join(timeout=10)
+    thread.join(timeout=30)
     if thread.is_alive():  # pragma: no cover - defensive cleanup
         raise RuntimeError("Live server thread did not stop in time.")
 
 
 @pytest.fixture()
 def browser(request, e2e_artifacts_dir: Path):
-    """Создаёт Selenium `Chrome` driver и при необходимости пишет mp4 окна."""
+    """Создаёт Selenium `Chrome` driver для deterministic и visible E2E-сценариев."""
+    del e2e_artifacts_dir
     binary = _detect_chromium_binary()
     if binary is None:
         pytest.skip("Chromium binary not found. Set E2E_CHROMIUM_BINARY to run browser E2E tests.")
@@ -314,27 +550,38 @@ def browser(request, e2e_artifacts_dir: Path):
     except Exception as exc:  # pragma: no cover - environment-specific failure
         pytest.fail(f"Could not start Selenium Chrome driver: {exc}")
 
-    recorder = _start_video_recorder(
-        driver=driver,
-        request=request,
-        e2e_artifacts_dir=e2e_artifacts_dir,
-    )
+    driver._e2e_chromedriver_pid = service.process.pid if service.process else None
 
     yield driver
 
     report = getattr(request.node, "rep_call", None)
     if report is not None and report.failed:
         slug = _node_slug(request.node.nodeid)
-        screenshot_path = e2e_artifacts_dir / f"{slug}.png"
-        html_path = e2e_artifacts_dir / f"{slug}.html"
+        screenshot_path = Path.cwd() / ".pytest_artifacts" / "e2e" / f"{slug}.png"
+        html_path = Path.cwd() / ".pytest_artifacts" / "e2e" / f"{slug}.html"
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
         driver.save_screenshot(str(screenshot_path))
         html_path.write_text(driver.page_source, encoding="utf-8")
 
-    _stop_video_recorder(recorder)
     driver.quit()
 
 
 @pytest.fixture()
-def chat_page(browser, live_server: str) -> ChatPage:
-    """Готовит page-object для тестов чата."""
-    return ChatPage(browser, live_server).open()
+def video_capture(browser, request, e2e_artifacts_dir: Path) -> BrowserVideoCaptureController:
+    """Лениво включает window-id video capture только для нужных Selenium-прогонов."""
+    controller = BrowserVideoCaptureController(
+        driver=browser,
+        request=request,
+        e2e_artifacts_dir=e2e_artifacts_dir,
+    )
+    yield controller
+    controller.stop()
+
+
+@pytest.fixture()
+def chat_page(browser, live_server: str, video_capture: BrowserVideoCaptureController) -> ChatPage:
+    """Готовит page-object для тестов чата и стартует запись после первого render."""
+    page = ChatPage(browser, live_server).open(pause_after_open=False)
+    video_capture.start()
+    page.pause_after_open()
+    return page

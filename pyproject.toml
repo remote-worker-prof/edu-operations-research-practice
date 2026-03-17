@@ -25,6 +25,7 @@ pythonpath = [
 markers = [
   "e2e: browser end-to-end tests against the live HTMX web application",
   "openai_smoke: optional browser smoke tests that require OPENAI_API_KEY and explicit opt-in",
+  "openai_video_demo: recorded Selenium demo scenarios that require OPENAI_API_KEY and visible X11 Chromium",
 ]
 
 [tool.ruff]

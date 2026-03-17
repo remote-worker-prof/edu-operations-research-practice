@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from typing import Literal
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -30,7 +31,7 @@ def _float_env(name: str, default: float) -> float:
 class ChatPage:
     """Тонкая page-object обёртка над web-чатом проекта."""
 
-    def __init__(self, driver, base_url: str, timeout: int = 10) -> None:
+    def __init__(self, driver, base_url: str, timeout: int = 20) -> None:
         self.driver = driver
         self.base_url = base_url.rstrip("/")
         self.wait = WebDriverWait(driver, timeout)
@@ -45,10 +46,16 @@ class ChatPage:
         if self.demo_mode and seconds > 0:
             time.sleep(seconds)
 
-    def open(self) -> "ChatPage":
+    def open(self, *, pause_after_open: bool = True) -> "ChatPage":
         """Открывает стартовую страницу и ждёт первичный workspace."""
         self.driver.get(f"{self.base_url}/")
         self.wait_for_workspace()
+        if pause_after_open:
+            self.pause_after_open()
+        return self
+
+    def pause_after_open(self) -> "ChatPage":
+        """Держит первый отрендеренный кадр перед началом сценария."""
         self._pause(self.demo_initial_delay)
         return self
 
@@ -83,18 +90,32 @@ class ChatPage:
         self._pause(self.demo_step_delay)
         return self
 
-    def send_message(self, message: str) -> "ChatPage":
+    def pause(self, seconds: float | None = None) -> "ChatPage":
+        """Делает публичную demo-паузу между смысловыми шагами сценария."""
+        self._pause(self.demo_step_delay if seconds is None else seconds)
+        return self
+
+    def send_message(
+        self,
+        message: str,
+        *,
+        typing_mode: Literal["auto", "type", "paste"] = "auto",
+    ) -> "ChatPage":
         """Отправляет сообщение и ждёт HTMX replacement для `#workspace`."""
         previous_workspace = self.wait_for_workspace()
         message_input = self.wait.until(EC.element_to_be_clickable((By.ID, "chat-message-input")))
         message_input.clear()
-        if self.demo_mode:
+        effective_mode = typing_mode
+        if effective_mode == "auto":
+            effective_mode = "type" if self.demo_mode and len(message) <= 80 else "paste"
+        if self.demo_mode and effective_mode == "type":
             for character in message:
                 message_input.send_keys(character)
                 self._pause(self.demo_type_delay)
             self._pause(self.demo_step_delay)
         else:
             message_input.send_keys(message)
+            self._pause(self.demo_step_delay)
         self.driver.find_element(By.ID, "chat-submit-button").click()
         self.wait.until(EC.staleness_of(previous_workspace))
         self.wait_for_workspace()

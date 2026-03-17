@@ -1,37 +1,155 @@
-"""Browser E2E тесты HTMX-интерфейса через Selenium + headless Chromium."""
+"""Browser E2E тесты HTMX-интерфейса через Selenium + Chromium."""
 
 from __future__ import annotations
 
+import json
 import os
+from dataclasses import dataclass
+from typing import Literal
 
 import httpx
 import pytest
 
 pytestmark = pytest.mark.e2e
 
-PRODUCTION_JSON = (
-    'json production {"products":["A","B"],"profits":[40,30],'
-    '"resource_matrix":[[2,1],[1,1.5]],"resource_limits":[240,180],'
-    '"demand_upper_bounds":[70,80],"pallet_factors":[1.0,0.8]}'
+
+def _stage_json(stage: str, payload: dict) -> str:
+    """Формирует команду `json <stage> {...}` из python-словаря."""
+    return f"json {stage} {json.dumps(payload, ensure_ascii=False)}"
+
+
+def _scenario_payloads(
+    *,
+    products: list[str],
+    profits: list[int],
+    pallet_factors: list[float],
+    warehouses: list[str],
+    clients: list[str],
+    resources: list[str],
+    shipment_cost_matrix: list[list[int]],
+    assignment_cost_matrix: list[list[int]],
+    routing_distance_matrix: list[list[int]],
+) -> dict[str, dict]:
+    """Собирает валидный набор входов для 4-stage OR-сценария."""
+    return {
+        "production": {
+            "products": products,
+            "profits": profits,
+            "resource_matrix": [[2, 1], [1, 1.5]],
+            "resource_limits": [240, 180],
+            "demand_upper_bounds": [70, 80],
+            "pallet_factors": pallet_factors,
+        },
+        "shipment": {
+            "warehouses": warehouses,
+            "warehouse_supply_ratio": [0.55, 0.45],
+            "clients": clients,
+            "client_demand": [42, 38, 40],
+            "cost_matrix": shipment_cost_matrix,
+            "capacity_matrix": [[50, 45, 40], [40, 45, 50]],
+        },
+        "assignment": {
+            "resources": resources,
+            "cost_matrix": assignment_cost_matrix,
+        },
+        "routing": {
+            "distance_matrix": routing_distance_matrix,
+            "depot_index": 0,
+            "client_nodes": [1, 2, 3],
+            "vehicle_capacities": [55, 45, 45],
+        },
+    }
+
+
+FAST_PAYLOADS = _scenario_payloads(
+    products=["A", "B"],
+    profits=[40, 30],
+    pallet_factors=[1.0, 0.8],
+    warehouses=["W1", "W2"],
+    clients=["C1", "C2", "C3"],
+    resources=["truck_1", "truck_2", "truck_3"],
+    shipment_cost_matrix=[[4, 6, 8], [5, 4, 3]],
+    assignment_cost_matrix=[[8, 6, 7], [5, 8, 6], [7, 5, 9]],
+    routing_distance_matrix=[[0, 10, 12, 8], [10, 0, 6, 7], [12, 6, 0, 9], [8, 7, 9, 0]],
 )
-SHIPMENT_JSON = (
-    'json shipment {"warehouses":["W1","W2"],"warehouse_supply_ratio":[0.55,0.45],'
-    '"clients":["C1","C2","C3"],"client_demand":[42,38,40],'
-    '"cost_matrix":[[4,6,8],[5,4,3]],"capacity_matrix":[[50,45,40],[40,45,50]]}'
+MANUAL_VIDEO_PAYLOADS = _scenario_payloads(
+    products=["Atlas", "Beacon"],
+    profits=[52, 37],
+    pallet_factors=[1.05, 0.9],
+    warehouses=["North", "South"],
+    clients=["Retail_A", "Retail_B", "Retail_C"],
+    resources=["truck_red", "truck_blue", "truck_green"],
+    shipment_cost_matrix=[[3, 6, 7], [6, 4, 5]],
+    assignment_cost_matrix=[[7, 4, 6], [5, 7, 4], [6, 5, 8]],
+    routing_distance_matrix=[[0, 9, 13, 7], [9, 0, 5, 8], [13, 5, 0, 10], [7, 8, 10, 0]],
 )
-ASSIGNMENT_JSON = (
-    'json assignment {"resources":["truck_1","truck_2","truck_3"],'
-    '"cost_matrix":[[8,6,7],[5,8,6],[7,5,9]]}'
+NL_VIDEO_PAYLOADS = _scenario_payloads(
+    products=["Nova", "Orbit"],
+    profits=[46, 35],
+    pallet_factors=[1.0, 0.95],
+    warehouses=["East", "West"],
+    clients=["Clinic_1", "Clinic_2", "Clinic_3"],
+    resources=["van_1", "van_2", "van_3"],
+    shipment_cost_matrix=[[5, 6, 7], [4, 5, 4]],
+    assignment_cost_matrix=[[6, 5, 7], [5, 7, 4], [7, 4, 6]],
+    routing_distance_matrix=[[0, 11, 12, 9], [11, 0, 7, 6], [12, 7, 0, 8], [9, 6, 8, 0]],
 )
-ROUTING_JSON = (
-    'json routing {"distance_matrix":[[0,10,12,8],[10,0,6,7],[12,6,0,9],[8,7,9,0]],'
-    '"depot_index":0,"client_nodes":[1,2,3],"vehicle_capacities":[55,45,45]}'
+VALIDATION_VIDEO_PAYLOADS = _scenario_payloads(
+    products=["Delta", "Echo"],
+    profits=[50, 33],
+    pallet_factors=[1.1, 0.85],
+    warehouses=["Hub_A", "Hub_B"],
+    clients=["School_1", "School_2", "School_3"],
+    resources=["carrier_1", "carrier_2", "carrier_3"],
+    shipment_cost_matrix=[[4, 7, 6], [5, 4, 5]],
+    assignment_cost_matrix=[[7, 5, 6], [6, 7, 4], [5, 6, 8]],
+    routing_distance_matrix=[[0, 8, 11, 10], [8, 0, 7, 6], [11, 7, 0, 9], [10, 6, 9, 0]],
 )
-SHIPMENT_SHORTCUT_JSON = (
-    '{"warehouses":["W1","W2"],"warehouse_supply_ratio":[0.55,0.45],'
-    '"clients":["C1","C2","C3"],"client_demand":[42,38,40],'
-    '"cost_matrix":[[4,6,8],[5,4,3]],"capacity_matrix":[[50,45,40],[40,45,50]]}'
+AMBIGUITY_VIDEO_PAYLOADS = _scenario_payloads(
+    products=["Flux", "Glow"],
+    profits=[48, 34],
+    pallet_factors=[1.0, 0.88],
+    warehouses=["Depot_A", "Depot_B"],
+    clients=["Market_1", "Market_2", "Market_3"],
+    resources=["route_1", "route_2", "route_3"],
+    shipment_cost_matrix=[[6, 5, 7], [5, 6, 4]],
+    assignment_cost_matrix=[[5, 7, 6], [6, 5, 7], [7, 4, 5]],
+    routing_distance_matrix=[[0, 12, 10, 9], [12, 0, 6, 8], [10, 6, 0, 7], [9, 8, 7, 0]],
 )
+
+PRODUCTION_JSON = _stage_json("production", FAST_PAYLOADS["production"])
+SHIPMENT_JSON = _stage_json("shipment", FAST_PAYLOADS["shipment"])
+ASSIGNMENT_JSON = _stage_json("assignment", FAST_PAYLOADS["assignment"])
+ROUTING_JSON = _stage_json("routing", FAST_PAYLOADS["routing"])
+SHIPMENT_SHORTCUT_JSON = json.dumps(FAST_PAYLOADS["shipment"], ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class ScreencastStep:
+    """Один шаг видео-сценария поверх Selenium page-object."""
+
+    kind: Literal["select_model", "type_message", "paste_message", "pause"]
+    value: str | float
+
+
+def _commands_for_payloads(payloads: dict[str, dict]) -> list[str]:
+    """Преобразует stage payloads в список `json <stage> ...` команд."""
+    return [_stage_json(stage, payload) for stage, payload in payloads.items()]
+
+
+def _run_screencast_script(chat_page, steps: list[ScreencastStep]) -> None:
+    """Исполняет script-like последовательность шагов для видео-демо."""
+    for step in steps:
+        if step.kind == "select_model":
+            chat_page.select_model(str(step.value))
+            continue
+        if step.kind == "type_message":
+            chat_page.send_message(str(step.value), typing_mode="type")
+            continue
+        if step.kind == "paste_message":
+            chat_page.send_message(str(step.value), typing_mode="paste")
+            continue
+        chat_page.pause(float(step.value))
 
 
 def _assert_or_results_rendered(chat_page) -> None:
@@ -44,11 +162,25 @@ def _assert_or_results_rendered(chat_page) -> None:
     assert chat_page.last_chat_message(role="assistant")
 
 
+def _assert_openai_results_rendered(chat_page) -> None:
+    """Проверяет, что real-provider flow завершился без deterministic fallback."""
+    _assert_or_results_rendered(chat_page)
+    assert not chat_page.has_testid("warnings-card")
+    assert "Результат рассчитан детерминированным OR-пайплайном" not in chat_page.last_chat_message(
+        role="assistant"
+    )
+
+
 @pytest.fixture()
-def require_openai_smoke() -> None:
-    """Пропускает real-provider smoke без явного opt-in и API key."""
+def require_openai_provider(request) -> None:
+    """Пропускает real-provider сценарии без явного opt-in и API key."""
+    needs_openai = request.node.get_closest_marker(
+        "openai_smoke"
+    ) or request.node.get_closest_marker("openai_video_demo")
+    if not needs_openai:
+        return
     if os.getenv("E2E_OPENAI_SMOKE") != "1":
-        pytest.skip("Set E2E_OPENAI_SMOKE=1 to run real OpenAI browser smoke tests.")
+        pytest.skip("Set E2E_OPENAI_SMOKE=1 to run real OpenAI browser scenarios.")
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY is not present in the current shell environment.")
 
@@ -251,16 +383,188 @@ def test_provider_unavailable_flow_uses_deterministic_explanation(chat_page, mon
 
 
 @pytest.mark.openai_smoke
-def test_openai_browser_smoke(chat_page, require_openai_smoke) -> None:
-    """Минимальный browser smoke через реальный OpenAI provider."""
-    del require_openai_smoke
-    chat_page.select_model("openai_default")
-    chat_page.send_message("load preset demo")
-    chat_page.send_message("run")
+@pytest.mark.openai_video_demo
+def test_openai_video_preset_overview(chat_page, require_openai_provider) -> None:
+    """Пишет и проверяет базовый OpenAI video smoke с demo preset."""
+    del require_openai_provider
 
-    _assert_or_results_rendered(chat_page)
-    assert not chat_page.has_testid("warnings-card")
-    assert "Результат рассчитан детерминированным OR-пайплайном" not in chat_page.last_chat_message(
-        role="assistant"
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep("pause", 1.0),
+            ScreencastStep("type_message", "show input"),
+            ScreencastStep("pause", 1.0),
+            ScreencastStep("type_message", "run"),
+        ],
     )
+
+    assert any("Текущий draft:" in message for message in chat_page.chat_messages(role="assistant"))
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_video_demo
+def test_openai_video_manual_json_flow(chat_page, require_openai_provider) -> None:
+    """Пишет длинный manual JSON flow с отдельным набором входных данных."""
+    del require_openai_provider
+
+    steps = [
+        ScreencastStep("select_model", "openai_default"),
+        ScreencastStep("type_message", "start"),
+    ]
+    steps.extend(
+        ScreencastStep("paste_message", command)
+        for command in _commands_for_payloads(MANUAL_VIDEO_PAYLOADS)
+    )
+    steps.extend(
+        [
+            ScreencastStep("type_message", "set production.profits [53,39]"),
+            ScreencastStep("type_message", "show input"),
+            ScreencastStep("pause", 1.0),
+            ScreencastStep("type_message", "run"),
+        ]
+    )
+    _run_screencast_script(chat_page, list(steps))
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+    assert "Atlas" in "\n".join(chat_page.chat_messages(role="assistant"))
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_video_demo
+def test_openai_video_nl_confirm_flow(chat_page, require_openai_provider) -> None:
+    """Пишет OpenAI video flow со свободным текстом и подтверждением patch-ей."""
+    del require_openai_provider
+
+    setup_steps = [
+        ScreencastStep("select_model", "openai_default"),
+        ScreencastStep("type_message", "start"),
+    ]
+    setup_steps.extend(
+        ScreencastStep("paste_message", command)
+        for command in _commands_for_payloads(NL_VIDEO_PAYLOADS)
+    )
+    setup_steps.append(
+        ScreencastStep("type_message", "production profits [49,37], pallet_factors [1.0,0.95]")
+    )
+    _run_screencast_script(chat_page, list(setup_steps))
+
+    assert chat_page.has_testid("pending-patches-card")
+    assert any(
+        "production.profits" in row.text
+        for row in chat_page.find_all_by_testid("pending-patch-row")
+    )
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("pause", 1.0),
+            ScreencastStep("type_message", "да"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_video_demo
+def test_openai_video_validation_recovery_flow(chat_page, require_openai_provider) -> None:
+    """Пишет OpenAI video flow с validation error и последующим исправлением."""
+    del require_openai_provider
+
+    partial_production = _stage_json(
+        "production",
+        {"products": VALIDATION_VIDEO_PAYLOADS["production"]["products"]},
+    )
+    malformed_production = 'json production {"products":["Delta","Echo"]'
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "start"),
+            ScreencastStep("paste_message", partial_production),
+            ScreencastStep("pause", 1.0),
+            ScreencastStep("type_message", malformed_production),
+            ScreencastStep("pause", 1.0),
+            ScreencastStep(
+                "paste_message",
+                _stage_json("production", VALIDATION_VIDEO_PAYLOADS["production"]),
+            ),
+            ScreencastStep(
+                "paste_message",
+                _stage_json("shipment", VALIDATION_VIDEO_PAYLOADS["shipment"]),
+            ),
+            ScreencastStep(
+                "paste_message",
+                _stage_json("assignment", VALIDATION_VIDEO_PAYLOADS["assignment"]),
+            ),
+            ScreencastStep(
+                "paste_message",
+                _stage_json("routing", VALIDATION_VIDEO_PAYLOADS["routing"]),
+            ),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    assert "Ошибка ввода: Некорректный JSON:" in "\n".join(
+        chat_page.chat_messages(role="assistant")
+    )
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_video_demo
+def test_openai_video_ambiguity_resolution_flow(chat_page, require_openai_provider) -> None:
+    """Пишет OpenAI video flow с ambiguity, уточнением и подтверждением patch-а."""
+    del require_openai_provider
+
+    setup_steps = [
+        ScreencastStep("select_model", "openai_default"),
+        ScreencastStep("type_message", "start"),
+    ]
+    setup_steps.extend(
+        ScreencastStep("paste_message", command)
+        for command in _commands_for_payloads(AMBIGUITY_VIDEO_PAYLOADS)
+    )
+    setup_steps.append(
+        ScreencastStep(
+            "type_message",
+            "для production и shipment задай cost_matrix [[5,6,8],[4,5,3]]",
+        )
+    )
+    _run_screencast_script(chat_page, list(setup_steps))
+
+    assert chat_page.has_testid("uncertainties-card")
+    assert "несколько stages" in chat_page.last_chat_message(role="assistant").lower()
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("pause", 1.0),
+            ScreencastStep(
+                "type_message",
+                "для shipment cost_matrix [[5,6,8],[4,5,3]]",
+            ),
+        ],
+    )
+
+    assert chat_page.has_testid("pending-patches-card")
+    assert any(
+        "shipment.cost_matrix" in row.text
+        for row in chat_page.find_all_by_testid("pending-patch-row")
+    )
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("type_message", "да"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_openai_results_rendered(chat_page)
     chat_page.pause_for_screencast_finish()
