@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 PYTEST_ARGS ?=
 RUFF_ARGS ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,6 +29,20 @@ doctor: ## Show local toolchain and docker availability
 	@echo "python: $$(python3 --version 2>&1 || echo unavailable)"
 	@echo "uv: $$( $(UV) --version 2>&1 || echo unavailable )"
 	@echo "make: $$(make --version | head -n 1 2>/dev/null || echo unavailable)"
+	@chromium_bin="$${E2E_CHROMIUM_BINARY:-$$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)}"; \
+	if [ -n "$$chromium_bin" ]; then \
+		echo "chromium: $$($$chromium_bin --version 2>/dev/null | head -n 1 || echo "$$chromium_bin")"; \
+		if "$$chromium_bin" --headless --disable-gpu --no-sandbox --dump-dom about:blank >/dev/null 2>&1; then \
+			echo "chromium headless: ok"; \
+		else \
+			echo "chromium headless: failed"; \
+		fi; \
+	else \
+		echo "chromium: unavailable"; \
+		echo "chromium headless: unavailable"; \
+	fi
+	@echo "chromedriver override: $${E2E_CHROMEDRIVER_PATH:-auto (Selenium Manager)}"
+	@if [ -n "$$OPENAI_API_KEY" ]; then echo "OPENAI_API_KEY: present"; else echo "OPENAI_API_KEY: missing"; fi
 	@docker_version="$$(docker --version 2>/dev/null || true)"; \
 	if [ -n "$$docker_version" ] && docker info >/dev/null 2>&1; then \
 		echo "docker: $$docker_version"; \
@@ -60,6 +74,12 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests only
 	$(UV) run --all-packages pytest tests/integration $(PYTEST_ARGS)
 
+test-e2e: ## Run deterministic Selenium browser tests
+	$(UV) run --all-packages pytest tests/e2e -m "e2e and not openai_smoke" $(PYTEST_ARGS)
+
+test-e2e-openai: ## Run optional real OpenAI browser smoke
+	E2E_OPENAI_SMOKE=1 $(UV) run --all-packages pytest tests/e2e -m "openai_smoke" $(PYTEST_ARGS)
+
 docs-check: ## Validate baseline docstring coverage (module + public callables)
 	$(UV) run python scripts/check_doc_coverage.py
 
@@ -84,7 +104,7 @@ docker-logs: require-docker ## Follow webapp container logs
 	$(COMPOSE) logs -f webapp
 
 clean: ## Remove caches only (safe cleanup)
-	rm -rf .pytest_cache .ruff_cache
+	rm -rf .pytest_cache .ruff_cache .pytest_artifacts
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 	find . -type f -name '*.pyc' -delete
 

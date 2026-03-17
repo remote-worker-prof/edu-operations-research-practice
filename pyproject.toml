@@ -10,6 +10,7 @@ dev = [
   "pytest>=8.3.3",
   "pytest-cov>=6.0.0",
   "httpx>=0.28.1",
+  "selenium>=4.33.0",
   "ruff>=0.11.0",
 ]
 
@@ -20,6 +21,10 @@ pythonpath = [
   "apps/webapp/src",
   "packages/agent_core/src",
   "packages/or_core/src",
+]
+markers = [
+  "e2e: browser end-to-end tests against the live HTMX web application",
+  "openai_smoke: optional browser smoke tests that require OPENAI_API_KEY and explicit opt-in",
 ]
 
 [tool.ruff]

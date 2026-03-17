@@ -17,7 +17,7 @@
 - `packages/agent_core` — диалоговый агент, сессии, LLM-адаптер
 - `packages/or_core` — доменные модели и OR-солверы
 - `data/scenarios` — учебные сценарии
-- `tests` — unit/integration/API/E2E-light тесты
+- `tests` — unit/integration/API/browser E2E тесты
 - `docs` — архитектура, запуск и итоговые заметки по quality/remediation
 - `00-initial-temp/` — черновики (игнорируются Git)
 
@@ -39,6 +39,8 @@ make install
 make dev
 make check
 make check-all
+make test-e2e
+make test-e2e-openai
 make docker-up
 make bd-check
 make bd-import
@@ -77,6 +79,30 @@ make test PYTEST_ARGS='-k dialog -vv'
 ```bash
 uv run --all-packages pytest
 ```
+
+Browser E2E через Selenium + headless Chromium:
+
+```bash
+make doctor
+make test-e2e
+```
+
+Optional real OpenAI smoke:
+
+```bash
+make test-e2e-openai
+```
+
+Prerequisites и override-переменные для browser harness:
+
+- нужен локальный Chromium/Chrome с рабочим headless-режимом;
+- по умолчанию Selenium использует Selenium Manager для поиска/скачивания driver;
+- `E2E_CHROMIUM_BINARY` — явный путь к browser binary;
+- `E2E_CHROMEDRIVER_PATH` — явный путь к `chromedriver`, если нужен ручной override;
+- `E2E_HEADLESS=0` — отключить headless-режим;
+- `E2E_OPENAI_SMOKE=1` и `OPENAI_API_KEY` — включить real-provider smoke.
+
+При падении browser E2E screenshot и HTML page source сохраняются в `.pytest_artifacts/e2e/`.
 
 ## Провайдеры моделей через LiteLLM
 

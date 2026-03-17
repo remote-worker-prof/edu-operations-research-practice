@@ -1,9 +1,9 @@
 """HTTP-слой учебного OR-AI приложения.
 
 Назначение модуля:
-- объявить FastAPI-приложение;
+- объявить `FastAPI`-приложение и фабрику `create_app`;
 - связать HTML/HTMX интерфейс с `AgentService`;
-- предоставить JSON API для интеграционных тестов и внешних клиентов.
+- предоставить JSON API для интеграционных тестов, Selenium E2E и внешних клиентов.
 
 Роль в архитектуре:
 - это единственная точка входа web-слоя;
@@ -22,14 +22,14 @@ from pathlib import Path
 from agent_core.config import DEFAULT_MODEL_ALIAS, model_aliases, model_options
 from agent_core.models import ChatTurnRequest
 from agent_core.service import AgentService
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-app = FastAPI(title="OR AI Agent Demo", version="0.1.0")
-service = AgentService()
-
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+APP_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+router = APIRouter()
 
 MISSING_FIELD_LABELS = {
     "production": "1) Production",
@@ -37,6 +37,11 @@ MISSING_FIELD_LABELS = {
     "assignment": "3) Assignment",
     "routing": "4) Routing",
 }
+
+
+def _get_service(request: Request) -> AgentService:
+    """Возвращает `AgentService`, прикреплённый к текущему приложению."""
+    return request.app.state.service
 
 
 def _render_context(*, request: Request, session) -> dict:
@@ -70,7 +75,7 @@ def _render_context(*, request: Request, session) -> dict:
     }
 
 
-@app.get("/healthz")
+@router.get("/healthz")
 def healthz() -> dict[str, str]:
     """Возвращает минимальную проверку доступности сервиса.
 
@@ -95,7 +100,7 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     """Рендерит стартовую страницу с новой пользовательской сессией.
 
@@ -119,12 +124,13 @@ def index(request: Request) -> HTMLResponse:
     Пример:
     - пользователь открывает `/` и видит чат + панель параметров.
     """
+    service = _get_service(request)
     session = service.create_session()
     context = _render_context(request=request, session=session)
     return templates.TemplateResponse(request, "index.html", context)
 
 
-@app.post("/chat/turn", response_class=HTMLResponse)
+@router.post("/chat/turn", response_class=HTMLResponse)
 def chat_turn(
     request: Request,
     session_id: str = Form(...),
@@ -156,6 +162,7 @@ def chat_turn(
     Пример:
     - `POST /chat/turn` с формой -> обновлённый блок `#workspace`.
     """
+    service = _get_service(request)
     result = service.handle_turn(
         ChatTurnRequest(
             session_id=session_id,
@@ -167,8 +174,8 @@ def chat_turn(
     return templates.TemplateResponse(request, "_workspace.html", context)
 
 
-@app.post("/api/chat/turn")
-def api_chat_turn(payload: ChatTurnRequest) -> dict:
+@router.post("/api/chat/turn")
+def api_chat_turn(payload: ChatTurnRequest, request: Request) -> dict:
     """JSON endpoint для одного хода диалога.
 
     Что делает:
@@ -191,12 +198,13 @@ def api_chat_turn(payload: ChatTurnRequest) -> dict:
     Пример:
     - `POST /api/chat/turn` с JSON-пейлоадом из тестов в `tests/integration/test_api.py`.
     """
+    service = _get_service(request)
     result = service.handle_turn(payload)
     return result.model_dump(mode="json")
 
 
-@app.get("/api/session/{session_id}")
-def api_get_session(session_id: str) -> dict:
+@router.get("/api/session/{session_id}")
+def api_get_session(session_id: str, request: Request) -> dict:
     """Возвращает состояние сессии по идентификатору.
 
     Что делает:
@@ -219,7 +227,32 @@ def api_get_session(session_id: str) -> dict:
     Пример:
     - `GET /api/session/<id>` после нескольких ходов диалога.
     """
+    service = _get_service(request)
     session = service.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return session.model_dump(mode="json")
+
+
+def create_app(*, service: AgentService | None = None) -> FastAPI:
+    """Создаёт и настраивает `FastAPI`-приложение для runtime и тестов.
+
+    Что делает:
+    - создаёт новый экземпляр `FastAPI`;
+    - прикрепляет `AgentService` в `app.state`;
+    - монтирует локальные static assets;
+    - подключает router c HTML и JSON endpoints.
+
+    Зачем:
+    - Selenium/live-server тесты могут поднимать изолированное приложение
+      с отдельным in-memory состоянием и без общих module-global side effects.
+    """
+    app = FastAPI(title="OR AI Agent Demo", version="0.1.0")
+    app.state.service = service or AgentService()
+    app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+    app.include_router(router)
+    return app
+
+
+app = create_app()
+service = app.state.service
