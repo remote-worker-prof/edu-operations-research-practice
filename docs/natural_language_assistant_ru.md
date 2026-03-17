@@ -4,6 +4,9 @@
 Если нужен подробный beginner-friendly guide по тому, как именно общаться с чатом,
 какие команды и форматы поддерживаются и как отправлять данные по stage,
 смотрите [chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md).
+Если нужен отдельный точный reference по языку ввода, строгости синтаксиса,
+кусочному вводу и DSL-практикам, смотрите
+[chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 
 ## Как это работает
 
@@ -83,3 +86,5 @@ LLM-assisted fallback:
 
 Для пошагового пользовательского tutorial-режима см. также
 [chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md).
+Для отдельного stage-by-stage reference по языку ввода см.
+[chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).

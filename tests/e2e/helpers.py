@@ -10,6 +10,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
+_DEMO_CHUNK_SIZE = 12
+_DEMO_CHUNK_DELAY_SECONDS = 0.32
+
 
 def _demo_mode_enabled() -> bool:
     """Определяет, включён ли screencast/demo режим для Selenium."""
@@ -40,11 +43,17 @@ class ChatPage:
         self.demo_step_delay = _float_env("E2E_DEMO_STEP_DELAY_SECONDS", 2.5)
         self.demo_type_delay = _float_env("E2E_DEMO_TYPE_DELAY_SECONDS", 0.09)
         self.demo_final_delay = _float_env("E2E_DEMO_FINAL_DELAY_SECONDS", 8.0)
+        self.demo_chunk_size = _DEMO_CHUNK_SIZE
+        self.demo_chunk_delay = _DEMO_CHUNK_DELAY_SECONDS
 
     def _pause(self, seconds: float) -> None:
         """Делает реальную паузу только в demo-режиме."""
         if self.demo_mode and seconds > 0:
             time.sleep(seconds)
+
+    def _step_pause_seconds(self, override: float | None) -> float:
+        """Возвращает задержку после смыслового шага в demo-режиме."""
+        return self.demo_step_delay if override is None else max(override, 0.0)
 
     def open(self, *, pause_after_open: bool = True) -> "ChatPage":
         """Открывает стартовую страницу и ждёт первичный workspace."""
@@ -83,11 +92,16 @@ class ChatPage:
         """Читает текущий `session_id` из скрытого input."""
         return self.driver.find_element(By.ID, "session-id-input").get_attribute("value")
 
-    def select_model(self, alias: str) -> "ChatPage":
+    def select_model(
+        self,
+        alias: str,
+        *,
+        after_pause_seconds: float | None = None,
+    ) -> "ChatPage":
         """Выбирает alias модели в `<select>`."""
         select = Select(self.driver.find_element(By.ID, "model-alias-select"))
         select.select_by_value(alias)
-        self._pause(self.demo_step_delay)
+        self._pause(self._step_pause_seconds(after_pause_seconds))
         return self
 
     def pause(self, seconds: float | None = None) -> "ChatPage":
@@ -99,7 +113,8 @@ class ChatPage:
         self,
         message: str,
         *,
-        typing_mode: Literal["auto", "type", "paste"] = "auto",
+        typing_mode: Literal["auto", "type", "paste", "chunked"] = "auto",
+        after_pause_seconds: float | None = None,
     ) -> "ChatPage":
         """Отправляет сообщение и ждёт HTMX replacement для `#workspace`."""
         previous_workspace = self.wait_for_workspace()
@@ -107,11 +122,19 @@ class ChatPage:
         message_input.clear()
         effective_mode = typing_mode
         if effective_mode == "auto":
-            effective_mode = "type" if self.demo_mode and len(message) <= 80 else "paste"
+            effective_mode = "type" if self.demo_mode and len(message) <= 80 else "chunked"
+        if not self.demo_mode and effective_mode == "chunked":
+            effective_mode = "paste"
         if self.demo_mode and effective_mode == "type":
             for character in message:
                 message_input.send_keys(character)
                 self._pause(self.demo_type_delay)
+            self._pause(self.demo_step_delay)
+        elif self.demo_mode and effective_mode == "chunked":
+            for index in range(0, len(message), self.demo_chunk_size):
+                message_input.send_keys(message[index : index + self.demo_chunk_size])
+                if index + self.demo_chunk_size < len(message):
+                    self._pause(self.demo_chunk_delay)
             self._pause(self.demo_step_delay)
         else:
             message_input.send_keys(message)
@@ -122,7 +145,7 @@ class ChatPage:
         self.wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="chat-message"]'))
         )
-        self._pause(self.demo_step_delay)
+        self._pause(self._step_pause_seconds(after_pause_seconds))
         return self
 
     def pause_for_screencast_finish(self) -> "ChatPage":

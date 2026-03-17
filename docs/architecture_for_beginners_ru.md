@@ -451,9 +451,10 @@ run
 1. [README.md](../README.md) — общая карта репозитория, запуск и список основных документов.
 2. [docs/architecture.md](architecture.md) — техническая спецификация слоёв, контрактов и sequence-логики.
 3. [docs/chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md) — подробный guide по тому, как именно общаться с чатом и отправлять данные.
-4. [docs/natural_language_assistant_ru.md](natural_language_assistant_ru.md) — короткий контракт NL-режима.
-5. [docs/or_subgraph_math.md](or_subgraph_math.md) — математический смысл 4 этапов OR-подграфа.
-6. Код:
+4. [docs/chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md) — точный язык ввода чата, его строгость и safe-практики.
+5. [docs/natural_language_assistant_ru.md](natural_language_assistant_ru.md) — короткий контракт NL-режима.
+6. [docs/or_subgraph_math.md](or_subgraph_math.md) — математический смысл 4 этапов OR-подграфа.
+7. Код:
    - `apps/webapp/src/webapp/main.py`
    - `packages/agent_core/src/agent_core/service.py`
    - `packages/agent_core/src/agent_core/dialog_graph.py`

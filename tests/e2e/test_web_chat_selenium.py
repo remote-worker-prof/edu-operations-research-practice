@@ -128,8 +128,13 @@ SHIPMENT_SHORTCUT_JSON = json.dumps(FAST_PAYLOADS["shipment"], ensure_ascii=Fals
 class ScreencastStep:
     """Один шаг видео-сценария поверх Selenium page-object."""
 
-    kind: Literal["select_model", "type_message", "paste_message", "pause"]
+    kind: Literal["select_model", "type_message", "chunked_message", "pause"]
     value: str | float
+    after_pause_seconds: float | None = None
+
+
+_SHOWCASE_PAUSE_SECONDS = 6.0
+_STATE_READING_PAUSE_SECONDS = 5.0
 
 
 def _commands_for_payloads(payloads: dict[str, dict]) -> list[str]:
@@ -141,13 +146,21 @@ def _run_screencast_script(chat_page, steps: list[ScreencastStep]) -> None:
     """Исполняет script-like последовательность шагов для видео-демо."""
     for step in steps:
         if step.kind == "select_model":
-            chat_page.select_model(str(step.value))
+            chat_page.select_model(str(step.value), after_pause_seconds=step.after_pause_seconds)
             continue
         if step.kind == "type_message":
-            chat_page.send_message(str(step.value), typing_mode="type")
+            chat_page.send_message(
+                str(step.value),
+                typing_mode="type",
+                after_pause_seconds=step.after_pause_seconds,
+            )
             continue
-        if step.kind == "paste_message":
-            chat_page.send_message(str(step.value), typing_mode="paste")
+        if step.kind == "chunked_message":
+            chat_page.send_message(
+                str(step.value),
+                typing_mode="chunked",
+                after_pause_seconds=step.after_pause_seconds,
+            )
             continue
         chat_page.pause(float(step.value))
 
@@ -383,6 +396,17 @@ def test_provider_unavailable_flow_uses_deterministic_explanation(chat_page, mon
 
 
 @pytest.mark.openai_smoke
+def test_openai_browser_smoke(chat_page, require_openai_provider) -> None:
+    """Проверяет быстрый real-provider smoke без screencast-пауз."""
+    del require_openai_provider
+
+    chat_page.select_model("openai_default")
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("run")
+
+    _assert_openai_results_rendered(chat_page)
+
+
 @pytest.mark.openai_video_demo
 def test_openai_video_preset_overview(chat_page, require_openai_provider) -> None:
     """Пишет и проверяет базовый OpenAI video smoke с demo preset."""
@@ -393,9 +417,9 @@ def test_openai_video_preset_overview(chat_page, require_openai_provider) -> Non
         [
             ScreencastStep("select_model", "openai_default"),
             ScreencastStep("type_message", "load preset demo"),
-            ScreencastStep("pause", 1.0),
-            ScreencastStep("type_message", "show input"),
-            ScreencastStep("pause", 1.0),
+            ScreencastStep(
+                "type_message", "show input", after_pause_seconds=_SHOWCASE_PAUSE_SECONDS
+            ),
             ScreencastStep("type_message", "run"),
         ],
     )
@@ -415,14 +439,15 @@ def test_openai_video_manual_json_flow(chat_page, require_openai_provider) -> No
         ScreencastStep("type_message", "start"),
     ]
     steps.extend(
-        ScreencastStep("paste_message", command)
+        ScreencastStep("chunked_message", command, after_pause_seconds=_STATE_READING_PAUSE_SECONDS)
         for command in _commands_for_payloads(MANUAL_VIDEO_PAYLOADS)
     )
     steps.extend(
         [
             ScreencastStep("type_message", "set production.profits [53,39]"),
-            ScreencastStep("type_message", "show input"),
-            ScreencastStep("pause", 1.0),
+            ScreencastStep(
+                "type_message", "show input", after_pause_seconds=_SHOWCASE_PAUSE_SECONDS
+            ),
             ScreencastStep("type_message", "run"),
         ]
     )
@@ -444,11 +469,15 @@ def test_openai_video_nl_confirm_flow(chat_page, require_openai_provider) -> Non
         ScreencastStep("type_message", "start"),
     ]
     setup_steps.extend(
-        ScreencastStep("paste_message", command)
+        ScreencastStep("chunked_message", command, after_pause_seconds=_STATE_READING_PAUSE_SECONDS)
         for command in _commands_for_payloads(NL_VIDEO_PAYLOADS)
     )
     setup_steps.append(
-        ScreencastStep("type_message", "production profits [49,37], pallet_factors [1.0,0.95]")
+        ScreencastStep(
+            "chunked_message",
+            "production profits [49,37], pallet_factors [1.0,0.95]",
+            after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
+        )
     )
     _run_screencast_script(chat_page, list(setup_steps))
 
@@ -461,7 +490,6 @@ def test_openai_video_nl_confirm_flow(chat_page, require_openai_provider) -> Non
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("pause", 1.0),
             ScreencastStep("type_message", "да"),
             ScreencastStep("type_message", "run"),
         ],
@@ -486,25 +514,35 @@ def test_openai_video_validation_recovery_flow(chat_page, require_openai_provide
         [
             ScreencastStep("select_model", "openai_default"),
             ScreencastStep("type_message", "start"),
-            ScreencastStep("paste_message", partial_production),
-            ScreencastStep("pause", 1.0),
-            ScreencastStep("type_message", malformed_production),
-            ScreencastStep("pause", 1.0),
             ScreencastStep(
-                "paste_message",
+                "chunked_message",
+                partial_production,
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
+            ),
+            ScreencastStep(
+                "chunked_message",
+                malformed_production,
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
+            ),
+            ScreencastStep(
+                "chunked_message",
                 _stage_json("production", VALIDATION_VIDEO_PAYLOADS["production"]),
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
             ),
             ScreencastStep(
-                "paste_message",
+                "chunked_message",
                 _stage_json("shipment", VALIDATION_VIDEO_PAYLOADS["shipment"]),
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
             ),
             ScreencastStep(
-                "paste_message",
+                "chunked_message",
                 _stage_json("assignment", VALIDATION_VIDEO_PAYLOADS["assignment"]),
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
             ),
             ScreencastStep(
-                "paste_message",
+                "chunked_message",
                 _stage_json("routing", VALIDATION_VIDEO_PAYLOADS["routing"]),
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
             ),
             ScreencastStep("type_message", "run"),
         ],
@@ -527,13 +565,14 @@ def test_openai_video_ambiguity_resolution_flow(chat_page, require_openai_provid
         ScreencastStep("type_message", "start"),
     ]
     setup_steps.extend(
-        ScreencastStep("paste_message", command)
+        ScreencastStep("chunked_message", command, after_pause_seconds=_STATE_READING_PAUSE_SECONDS)
         for command in _commands_for_payloads(AMBIGUITY_VIDEO_PAYLOADS)
     )
     setup_steps.append(
         ScreencastStep(
-            "type_message",
+            "chunked_message",
             "для production и shipment задай cost_matrix [[5,6,8],[4,5,3]]",
+            after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
         )
     )
     _run_screencast_script(chat_page, list(setup_steps))
@@ -544,10 +583,10 @@ def test_openai_video_ambiguity_resolution_flow(chat_page, require_openai_provid
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("pause", 1.0),
             ScreencastStep(
-                "type_message",
+                "chunked_message",
                 "для shipment cost_matrix [[5,6,8],[4,5,3]]",
+                after_pause_seconds=_STATE_READING_PAUSE_SECONDS,
             ),
         ],
     )

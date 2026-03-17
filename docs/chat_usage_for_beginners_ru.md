@@ -13,6 +13,9 @@
 
 Если вам нужен общий архитектурный контекст, сначала полезно прочитать
 [architecture_for_beginners_ru.md](architecture_for_beginners_ru.md).
+Если нужен именно точный reference по языку ввода, строгости синтаксиса,
+кусочному вводу и stage-by-stage DSL-примерам, смотрите
+[chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 Если нужен короткий технический контракт именно NL-режима, смотрите
 [natural_language_assistant_ru.md](natural_language_assistant_ru.md).
 
@@ -25,6 +28,8 @@
 - Есть 2 основных способа общения:
   - natural-language: пишете обычным языком, потом подтверждаете `да` или `нет`;
   - exact commands: `json <stage> {...}` или `set <stage>.<field> <value>` для точного контроля.
+- Если нужен полный reference по этому полу-DSL, лучше сразу открыть
+  [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 - Если в сообщении есть и фраза “запусти”, и параметры, чат сначала извлечёт параметры и попросит подтверждение, а не побежит считать.
 - Если вы не уверены, используйте безопасный режим:
   - `json <stage> {...}`
@@ -229,6 +234,11 @@ run
 Сначала чат извлечёт параметры, покажет их и попросит `да/нет`.
 
 ## 6. Базовые команды, которые реально поддерживает чат
+
+Этот раздел оставлен как обзор.
+Если нужен главный reference по синтаксису, alias-ам, строгости языка и различию
+между `json`, `set`, raw JSON и NL-вводом, используйте
+[chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 
 Ниже перечислены пользовательские формы, подтверждённые parser-кодом.
 
@@ -668,6 +678,11 @@ production profits [40,30], products ["A","B"]
 
 ## 11. Подробные copy-paste примеры по каждому stage
 
+Ниже остаются быстрые практические примеры.
+Если нужен полный stage-by-stage reference с объяснением, что именно можно вводить
+частями и почему `json <stage>` заменяет stage целиком, смотрите
+[chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
+
 Ниже для каждого stage даны примеры:
 
 - natural-language;
@@ -913,9 +928,10 @@ reset
 Если после этого документа хочется углубиться:
 
 1. [architecture_for_beginners_ru.md](architecture_for_beginners_ru.md) — как чат вписывается в общую архитектуру системы.
-2. [natural_language_assistant_ru.md](natural_language_assistant_ru.md) — короткий контракт NL-режима.
-3. [architecture.md](architecture.md) — техническая спецификация runtime flow и state-контрактов.
-4. Код:
+2. [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md) — точный язык ввода, его строгость и safe-практики.
+3. [natural_language_assistant_ru.md](natural_language_assistant_ru.md) — короткий контракт NL-режима.
+4. [architecture.md](architecture.md) — техническая спецификация runtime flow и state-контрактов.
+5. Код:
    - `packages/agent_core/src/agent_core/input_parser.py`
    - `packages/agent_core/src/agent_core/nl_parser.py`
    - `packages/agent_core/src/agent_core/dialog_graph.py`

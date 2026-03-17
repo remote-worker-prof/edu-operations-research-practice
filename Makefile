@@ -8,10 +8,10 @@ PORT ?= 8000
 COMPOSE ?= docker compose
 PYTEST_ARGS ?=
 RUFF_ARGS ?=
-DEMO_STEP_DELAY ?= 2.5
-DEMO_TYPE_DELAY ?= 0.09
-DEMO_FINAL_DELAY ?= 8
-DEMO_INITIAL_DELAY ?= 2
+DEMO_STEP_DELAY ?= 4
+DEMO_TYPE_DELAY ?= 0.16
+DEMO_FINAL_DELAY ?= 18
+DEMO_INITIAL_DELAY ?= 4
 VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos
 VIDEO_FPS ?= 15
 VIDEO_CASE ?=
@@ -97,7 +97,7 @@ test-e2e-openai: ## Run optional real OpenAI browser smoke
 	export E2E_OPENAI_SMOKE=1; \
 	$(UV) run --all-packages pytest tests/e2e -m "openai_smoke" $(PYTEST_ARGS)'
 
-test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with long human pauses
+test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with lecture-friendly pauses
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
 	export E2E_OPENAI_SMOKE=1; \
 	export E2E_HEADLESS=0; \
@@ -110,7 +110,7 @@ test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with long human pauses
 	tests/e2e/test_web_chat_selenium.py::test_openai_video_preset_overview \
 	-vv -s $(PYTEST_ARGS)'
 
-test-e2e-openai-demo-record: ## Run visible OpenAI Selenium demo and record Chromium window to MP4
+test-e2e-openai-demo-record: ## Run visible OpenAI Selenium demo, slow and recorded to MP4
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
 	export E2E_OPENAI_SMOKE=1; \
 	export E2E_HEADLESS=0; \
@@ -126,7 +126,7 @@ test-e2e-openai-demo-record: ## Run visible OpenAI Selenium demo and record Chro
 	tests/e2e/test_web_chat_selenium.py::test_openai_video_preset_overview \
 	-vv -s $(PYTEST_ARGS)'
 
-test-e2e-openai-video-pack: ## Record the full OpenAI Selenium video pack (5 scenarios)
+test-e2e-openai-video-pack: ## Record the full slow OpenAI Selenium video pack (5 scenarios)
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
 	export E2E_OPENAI_SMOKE=1; \
 	export E2E_HEADLESS=0; \

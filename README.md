@@ -114,6 +114,12 @@ Full OpenAI video pack with 5 recorded Selenium scenarios:
 make test-e2e-openai-video-pack
 ```
 
+Visible demo/video target'ы теперь специально замедлены по умолчанию для занятий,
+скринкастов и покадрового объяснения. Быстрый regression-контур остаётся таким:
+
+- `make test-e2e`
+- `make test-e2e-openai`
+
 Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`,
 `make test-e2e-openai-demo-record` и `make test-e2e-openai-video-pack`)
 запускаются через login `bash`, чтобы подхватить `OPENAI_API_KEY`
@@ -145,6 +151,12 @@ Prerequisites и override-переменные для browser harness:
 
 ```bash
 make test-e2e-openai-demo DEMO_STEP_DELAY=3.5 DEMO_TYPE_DELAY=0.12 DEMO_FINAL_DELAY=12
+```
+
+Чтобы ускорить demo-таргеты для локальной отладки, можно явно уменьшить задержки:
+
+```bash
+make test-e2e-openai-demo DEMO_INITIAL_DELAY=1 DEMO_STEP_DELAY=1.5 DEMO_TYPE_DELAY=0.06 DEMO_FINAL_DELAY=4
 ```
 
 Параметры для записи одного ролика можно переопределять:
@@ -224,6 +236,10 @@ run
 `data/scenarios/base_scenario.json` используется только как опциональный preset (`load preset demo`),
 а не как обязательная автоподстановка runtime.
 
+Если нужен подробный beginner-friendly reference по языку ввода, уровню строгости,
+piece-by-piece вводу и stage-by-stage примерам, смотрите
+[docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md).
+
 ## API
 
 - `GET /` — HTML интерфейс
@@ -236,6 +252,7 @@ run
 
 - [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md) — длинное простое введение в архитектуру проекта для новичка.
 - [docs/chat_usage_for_beginners_ru.md](docs/chat_usage_for_beginners_ru.md) — подробный guide по тому, как общаться с чатом и в каком виде отправлять данные.
+- [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) — отдельный beginner-friendly reference по языку ввода чата, DSL-формам и safe-практикам.
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
@@ -247,6 +264,17 @@ run
 Если нужен самый мягкий вход, сначала прочитайте
 [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md),
 а уже потом переходите к коду и технической архитектурной спецификации.
+
+Практический маршрут чтения лучше разделять на два:
+
+- Как устроена система:
+  [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md) ->
+  [docs/architecture.md](docs/architecture.md) ->
+  [docs/or_subgraph_math.md](docs/or_subgraph_math.md)
+- Как правильно вводить данные в чат:
+  [docs/chat_usage_for_beginners_ru.md](docs/chat_usage_for_beginners_ru.md) ->
+  [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) ->
+  [docs/natural_language_assistant_ru.md](docs/natural_language_assistant_ru.md)
 
 Рекомендуемый порядок чтения, чтобы быстро восстановить полный flow системы:
 
