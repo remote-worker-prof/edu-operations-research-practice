@@ -16,6 +16,8 @@
 Если нужен именно точный reference по языку ввода, строгости синтаксиса,
 кусочному вводу и stage-by-stage DSL-примерам, смотрите
 [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
+Если нужны практические сценарии ровно по тем же шагам, что и в демонстрационных
+Selenium-видео, смотрите [video_scenarios/README.md](video_scenarios/README.md).
 Если нужен короткий технический контракт именно NL-режима, смотрите
 [natural_language_assistant_ru.md](natural_language_assistant_ru.md).
 
@@ -35,6 +37,9 @@
   - `json <stage> {...}`
   - `set <stage>.<field> <value>`
 - `routing.client_demands` вручную вводить не нужно: это derived-поле, его система получает из этапа `shipment`.
+- Если хочется не только reference, но и готовые walkthrough-разборы с exact сообщениями,
+  UI-checkpoints и ожидаемыми числами, откройте
+  [video_scenarios/README.md](video_scenarios/README.md).
 
 ## 1. Что вообще умеет этот чат
 

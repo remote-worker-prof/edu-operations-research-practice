@@ -114,6 +114,11 @@ Full OpenAI video pack with 5 recorded Selenium scenarios:
 make test-e2e-openai-video-pack
 ```
 
+К записанным MP4 теперь есть и подробные текстовые companion-разборы:
+
+- [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md)
+- [docs/video_scenarios/README.md](docs/video_scenarios/README.md)
+
 Visible demo/video target'ы теперь специально замедлены по умолчанию для занятий,
 скринкастов и покадрового объяснения. Быстрый regression-контур остаётся таким:
 
@@ -239,6 +244,9 @@ run
 Если нужен подробный beginner-friendly reference по языку ввода, уровню строгости,
 piece-by-piece вводу и stage-by-stage примерам, смотрите
 [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md).
+Если нужны практические разборы уже готовых Selenium-демо с математикой,
+exact сообщениями в чат и ожидаемыми checkpoints, смотрите
+[docs/video_scenarios/README.md](docs/video_scenarios/README.md).
 
 ## API
 
@@ -250,6 +258,7 @@ piece-by-piece вводу и stage-by-stage примерам, смотрите
 
 ## Review Outcome
 
+- [docs/video_scenarios/README.md](docs/video_scenarios/README.md) — текстовые companion-разборы для 5 демонстрационных Selenium-видео: постановка задачи, математика, exact ввод и ожидаемые результаты.
 - [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md) — длинное простое введение в архитектуру проекта для новичка.
 - [docs/chat_usage_for_beginners_ru.md](docs/chat_usage_for_beginners_ru.md) — подробный guide по тому, как общаться с чатом и в каком виде отправлять данные.
 - [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) — отдельный beginner-friendly reference по языку ввода чата, DSL-формам и safe-практикам.

@@ -7,14 +7,19 @@ Chromium для учебной демонстрации чата.
 
 - `preset_overview.mp4`
   Базовый walkthrough: выбор `openai_default`, `load preset demo`, `show input`, `run`.
+  Текстовый разбор: [docs/video_scenarios/preset_overview_ru.md](../../video_scenarios/preset_overview_ru.md).
 - `manual_json_flow.mp4`
   Полный ручной ввод через `json <stage> ...`, затем `set ...`, `show input` и `run`.
+  Текстовый разбор: [docs/video_scenarios/manual_json_flow_ru.md](../../video_scenarios/manual_json_flow_ru.md).
 - `nl_confirm_flow.mp4`
   Natural-language ввод с показом `candidate patches`, подтверждением `да` и запуском `run`.
+  Текстовый разбор: [docs/video_scenarios/nl_confirm_flow_ru.md](../../video_scenarios/nl_confirm_flow_ru.md).
 - `validation_recovery_flow.mp4`
   Ошибочный и частичный ввод, показ validation/error состояния, затем исправление и успешный запуск.
+  Текстовый разбор: [docs/video_scenarios/validation_recovery_flow_ru.md](../../video_scenarios/validation_recovery_flow_ru.md).
 - `ambiguity_resolution_flow.mp4`
   Неоднозначная реплика, уточнение stage, подтверждение patch-а и успешный запуск.
+  Текстовый разбор: [docs/video_scenarios/ambiguity_resolution_flow_ru.md](../../video_scenarios/ambiguity_resolution_flow_ru.md).
 
 ## Длительности
 
@@ -27,3 +32,7 @@ Chromium для учебной демонстрации чата.
 Исходные временные артефакты Selenium по-прежнему появляются в
 `.pytest_artifacts/e2e/videos/`, а этот каталог хранит уже отобранные версии с
 постоянными именами для репозитория.
+
+Если хочется не просто посмотреть видео, а пошагово разобрать задачу, математику,
+ввод в чат и ожидаемые числа, начните с
+[docs/video_scenarios/README.md](../../video_scenarios/README.md).

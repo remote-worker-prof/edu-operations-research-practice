@@ -8,6 +8,8 @@
 
 Если вам нужен общий tutorial по работе с чатом, сначала посмотрите
 [chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md).
+Если хочется увидеть этот полу-DSL на живых примерах из записанных Selenium-видео,
+смотрите [video_scenarios/README.md](video_scenarios/README.md).
 Если нужен короткий контракт именно NL-режима, смотрите
 [natural_language_assistant_ru.md](natural_language_assistant_ru.md).
 
