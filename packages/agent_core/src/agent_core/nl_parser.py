@@ -20,6 +20,8 @@ from agent_core.models import CandidatePatch, NLParseResult, StageName, Teaching
 _COMMAND_PREFIXES = (
     "start",
     "старт",
+    "help",
+    "помощь",
     "reset",
     "сброс",
     "show input",
@@ -134,6 +136,8 @@ def parse_nl_turn(
 
     lower = text.lower()
     if lower.startswith(_COMMAND_PREFIXES):
+        return NLParseResult(intent="none", source_text=text)
+    if text.startswith("{") and text.endswith("}"):
         return NLParseResult(intent="none", source_text=text)
 
     if lower in _CONFIRM_MARKERS:

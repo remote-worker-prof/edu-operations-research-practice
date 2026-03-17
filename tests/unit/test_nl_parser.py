@@ -34,6 +34,21 @@ def test_parse_nl_turn_handles_confirmation_intent() -> None:
     assert result.confidence == 1.0
 
 
+def test_parse_nl_turn_leaves_help_command_for_deterministic_parser() -> None:
+    """Проверяет, что `help` идёт в command parser, а не в NL-help ветку."""
+    result = parse_nl_turn(message="help", current_stage="production")
+    assert result.intent == "none"
+
+
+def test_parse_nl_turn_leaves_raw_json_shortcut_for_command_parser() -> None:
+    """Проверяет, что raw JSON shortcut не перехватывается NL-слоем."""
+    result = parse_nl_turn(
+        message='{"warehouses":["W1","W2"],"clients":["C1","C2"]}',
+        current_stage="shipment",
+    )
+    assert result.intent == "none"
+
+
 def test_parse_nl_turn_prefers_patch_over_run_when_fields_present() -> None:
     """Проверяет policy precedence: extraction выше run при наличии полей."""
     result = parse_nl_turn(

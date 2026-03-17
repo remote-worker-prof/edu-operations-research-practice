@@ -27,6 +27,11 @@ ROUTING_JSON = (
     'json routing {"distance_matrix":[[0,10,12,8],[10,0,6,7],[12,6,0,9],[8,7,9,0]],'
     '"depot_index":0,"client_nodes":[1,2,3],"vehicle_capacities":[55,45,45]}'
 )
+SHIPMENT_SHORTCUT_JSON = (
+    '{"warehouses":["W1","W2"],"warehouse_supply_ratio":[0.55,0.45],'
+    '"clients":["C1","C2","C3"],"client_demand":[42,38,40],'
+    '"cost_matrix":[[4,6,8],[5,4,3]],"capacity_matrix":[[50,45,40],[40,45,50]]}'
+)
 
 
 def _assert_or_results_rendered(chat_page) -> None:
@@ -75,6 +80,26 @@ def test_start_flow_shows_drafting_state_and_human_labels(chat_page) -> None:
     ]
 
 
+def test_help_command_shows_cheat_sheet_in_chat(chat_page) -> None:
+    """Проверяет, что `help` показывает пользователю список поддерживаемых команд."""
+    chat_page.send_message("help")
+
+    reply = chat_page.last_chat_message(role="assistant")
+    assert "Команды: start, show input, next, run, load preset demo" in reply
+    assert "edit <stage>, json <stage> {..}, set <stage>.<field> <value>, reset." in reply
+
+
+def test_show_input_renders_serialized_draft_in_chat(chat_page) -> None:
+    """Проверяет, что `show input` выводит сериализованный draft прямо в чат."""
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("show input")
+
+    reply = chat_page.last_chat_message(role="assistant")
+    assert "Текущий draft:" in reply
+    assert '"preset_ref": "demo"' in reply
+    assert '"production": {' in reply
+
+
 def test_load_preset_demo_and_run_renders_results(chat_page) -> None:
     """Проверяет быстрый happy-path `load preset demo` -> `run`."""
     chat_page.send_message("load preset demo")
@@ -101,6 +126,55 @@ def test_manual_command_flow_reaches_successful_run(chat_page) -> None:
     chat_page.send_message("run")
 
     _assert_or_results_rendered(chat_page)
+
+
+def test_next_moves_to_first_missing_stage_and_updates_current_stage(chat_page) -> None:
+    """Проверяет, что `next` возвращает wizard к первому незаполненному stage."""
+    chat_page.send_message("start")
+    chat_page.send_message(PRODUCTION_JSON)
+    chat_page.send_message("edit routing")
+
+    assert chat_page.text_of("current-stage-value") == "routing"
+
+    chat_page.send_message("next")
+
+    assert chat_page.text_of("current-stage-value") == "shipment"
+    assert "Заполните stage Shipment" in chat_page.last_chat_message(role="assistant")
+
+
+def test_edit_stage_then_raw_json_shortcut_updates_current_stage_payload(chat_page) -> None:
+    """Проверяет `edit <stage>` + raw JSON shortcut без префикса `json`."""
+    chat_page.send_message("start")
+    chat_page.send_message("edit shipment")
+    chat_page.send_message(SHIPMENT_SHORTCUT_JSON)
+
+    assert chat_page.text_of("collection-mode") == "json"
+    assert chat_page.text_of("stage-status-value-shipment") == "готов"
+
+    chat_page.send_message("show input")
+
+    reply = chat_page.last_chat_message(role="assistant")
+    assert '"shipment": {' in reply
+    assert '"warehouses": [' in reply
+    assert '"client_demand": [' in reply
+
+
+def test_partial_and_malformed_json_surface_validation_without_false_ready_state(chat_page) -> None:
+    """Проверяет validation/error UX для partial и malformed JSON-команд."""
+    chat_page.send_message("start")
+    chat_page.send_message('json production {"products":["A","B"]}')
+
+    assert chat_page.has_testid("validation-errors-card")
+    assert chat_page.text_of("stage-status-value-production") == "не готов"
+    assert chat_page.text_of("ready-to-run-value") == "Нет"
+    assert not chat_page.has_testid("pre-run-summary-card")
+
+    chat_page.send_message('json production {"products":["A","B"]')
+
+    assert "Ошибка ввода: Некорректный JSON:" in chat_page.last_chat_message(role="assistant")
+    assert chat_page.text_of("ready-to-run-value") == "Нет"
+    assert chat_page.has_testid("validation-errors-card")
+    assert not chat_page.has_testid("pre-run-summary-card")
 
 
 def test_nl_flow_requires_confirmation_and_then_runs(chat_page) -> None:

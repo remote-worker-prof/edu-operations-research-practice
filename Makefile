@@ -12,8 +12,14 @@ DEMO_STEP_DELAY ?= 2.5
 DEMO_TYPE_DELAY ?= 0.09
 DEMO_FINAL_DELAY ?= 8
 DEMO_INITIAL_DELAY ?= 2
+VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos
+VIDEO_FPS ?= 15
+WINDOW_X ?= 80
+WINDOW_Y ?= 60
+WINDOW_WIDTH ?= 1440
+WINDOW_HEIGHT ?= 1200
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai test-e2e-openai-demo docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,6 +51,8 @@ doctor: ## Show local toolchain and docker availability
 		echo "chromium: unavailable"; \
 		echo "chromium headless: unavailable"; \
 	fi
+	@echo "ffmpeg: $$(ffmpeg -version 2>/dev/null | head -n 1 || echo unavailable)"
+	@echo "DISPLAY: $${DISPLAY:-missing}"
 	@echo "chromedriver override: $${E2E_CHROMEDRIVER_PATH:-auto (Selenium Manager)}"
 	@if [ -n "$$OPENAI_API_KEY" ]; then echo "OPENAI_API_KEY: present"; else echo "OPENAI_API_KEY: missing"; fi
 	@docker_version="$$(docker --version 2>/dev/null || true)"; \
@@ -95,6 +103,26 @@ test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with long human pauses
 	export E2E_DEMO_STEP_DELAY_SECONDS=$(DEMO_STEP_DELAY); \
 	export E2E_DEMO_TYPE_DELAY_SECONDS=$(DEMO_TYPE_DELAY); \
 	export E2E_DEMO_FINAL_DELAY_SECONDS=$(DEMO_FINAL_DELAY); \
+	$(UV) run --all-packages pytest \
+	tests/e2e/test_web_chat_selenium.py::test_openai_browser_smoke \
+	-vv -s $(PYTEST_ARGS)'
+
+test-e2e-openai-demo-record: ## Run visible OpenAI Selenium demo and record Chromium window to MP4
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	export E2E_HEADLESS=0; \
+	export E2E_DEMO_MODE=1; \
+	export E2E_RECORD_VIDEO=1; \
+	export E2E_DEMO_INITIAL_DELAY_SECONDS="$(DEMO_INITIAL_DELAY)"; \
+	export E2E_DEMO_STEP_DELAY_SECONDS="$(DEMO_STEP_DELAY)"; \
+	export E2E_DEMO_TYPE_DELAY_SECONDS="$(DEMO_TYPE_DELAY)"; \
+	export E2E_DEMO_FINAL_DELAY_SECONDS="$(DEMO_FINAL_DELAY)"; \
+	export E2E_VIDEO_OUTPUT_DIR="$(VIDEO_OUTPUT_DIR)"; \
+	export E2E_VIDEO_FPS="$(VIDEO_FPS)"; \
+	export E2E_WINDOW_X="$(WINDOW_X)"; \
+	export E2E_WINDOW_Y="$(WINDOW_Y)"; \
+	export E2E_WINDOW_WIDTH="$(WINDOW_WIDTH)"; \
+	export E2E_WINDOW_HEIGHT="$(WINDOW_HEIGHT)"; \
 	$(UV) run --all-packages pytest \
 	tests/e2e/test_web_chat_selenium.py::test_openai_browser_smoke \
 	-vv -s $(PYTEST_ARGS)'

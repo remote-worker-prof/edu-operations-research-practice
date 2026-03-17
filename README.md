@@ -41,6 +41,8 @@ make check
 make check-all
 make test-e2e
 make test-e2e-openai
+make test-e2e-openai-demo
+make test-e2e-openai-demo-record
 make docker-up
 make bd-check
 make bd-import
@@ -99,7 +101,14 @@ Visible screencast-friendly OpenAI demo with long human pauses:
 make test-e2e-openai-demo
 ```
 
-Оба OpenAI target (`make test-e2e-openai` и `make test-e2e-openai-demo`)
+Visible OpenAI demo with MP4 recording of the Chromium window:
+
+```bash
+make test-e2e-openai-demo-record
+```
+
+Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`
+и `make test-e2e-openai-demo-record`)
 запускаются через login `bash`, чтобы подхватить `OPENAI_API_KEY`
 из `~/.bash_profile`, `~/.profile` или `~/.bashrc`.
 
@@ -116,6 +125,10 @@ Prerequisites и override-переменные для browser harness:
 - `E2E_DEMO_STEP_DELAY_SECONDS` — пауза между действиями и после HTMX-обновлений.
 - `E2E_DEMO_TYPE_DELAY_SECONDS` — задержка между символами при наборе текста.
 - `E2E_DEMO_FINAL_DELAY_SECONDS` — сколько держать финальный кадр перед закрытием окна.
+- `E2E_RECORD_VIDEO=1` — включает запись видимого окна Chromium в MP4.
+- `E2E_VIDEO_OUTPUT_DIR` — каталог для `.mp4` артефактов.
+- `E2E_VIDEO_FPS` — частота кадров при записи окна.
+- `E2E_WINDOW_X`, `E2E_WINDOW_Y`, `E2E_WINDOW_WIDTH`, `E2E_WINDOW_HEIGHT` — детерминированная геометрия окна для записи.
 
 Параметры для `make test-e2e-openai-demo` можно переопределять:
 
@@ -123,7 +136,26 @@ Prerequisites и override-переменные для browser harness:
 make test-e2e-openai-demo DEMO_STEP_DELAY=3.5 DEMO_TYPE_DELAY=0.12 DEMO_FINAL_DELAY=12
 ```
 
+Параметры для записи скринкаста тоже можно переопределять:
+
+```bash
+make test-e2e-openai-demo-record \
+  DEMO_INITIAL_DELAY=3 \
+  DEMO_STEP_DELAY=4 \
+  DEMO_TYPE_DELAY=0.14 \
+  DEMO_FINAL_DELAY=15 \
+  WINDOW_X=120 WINDOW_Y=80 WINDOW_WIDTH=1500 WINDOW_HEIGHT=1100 \
+  VIDEO_FPS=20
+```
+
+Три режима запуска Selenium:
+
+- `make test-e2e` — быстрый deterministic headless regression suite.
+- `make test-e2e-openai-demo` — видимый demo-запуск с паузами, без записи.
+- `make test-e2e-openai-demo-record` — видимый demo-запуск с записью окна Chromium в MP4.
+
 При падении browser E2E screenshot и HTML page source сохраняются в `.pytest_artifacts/e2e/`.
+MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/videos/` по умолчанию.
 
 ## Провайдеры моделей через LiteLLM
 
