@@ -129,6 +129,7 @@ run
 
 ## Review Outcome
 
+- [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md) — длинное простое введение в архитектуру проекта для новичка.
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
@@ -136,6 +137,10 @@ run
 - `docs/epics/interactive_or_input_epic.md` — epic по интерактивному сбору OR-входов.
 
 ## Как читать код студенту
+
+Если нужен самый мягкий вход, сначала прочитайте
+[docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md),
+а уже потом переходите к коду и технической архитектурной спецификации.
 
 Рекомендуемый порядок чтения, чтобы быстро восстановить полный flow системы:
 
