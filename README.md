@@ -93,6 +93,16 @@ Optional real OpenAI smoke:
 make test-e2e-openai
 ```
 
+Visible screencast-friendly OpenAI demo with long human pauses:
+
+```bash
+make test-e2e-openai-demo
+```
+
+Оба OpenAI target (`make test-e2e-openai` и `make test-e2e-openai-demo`)
+запускаются через login `bash`, чтобы подхватить `OPENAI_API_KEY`
+из `~/.bash_profile`, `~/.profile` или `~/.bashrc`.
+
 Prerequisites и override-переменные для browser harness:
 
 - нужен локальный Chromium/Chrome с рабочим headless-режимом;
@@ -101,6 +111,17 @@ Prerequisites и override-переменные для browser harness:
 - `E2E_CHROMEDRIVER_PATH` — явный путь к `chromedriver`, если нужен ручной override;
 - `E2E_HEADLESS=0` — отключить headless-режим;
 - `E2E_OPENAI_SMOKE=1` и `OPENAI_API_KEY` — включить real-provider smoke.
+- `E2E_DEMO_MODE=1` — включает screencast/demo режим с “человеческими” паузами.
+- `E2E_DEMO_INITIAL_DELAY_SECONDS` — пауза после открытия страницы.
+- `E2E_DEMO_STEP_DELAY_SECONDS` — пауза между действиями и после HTMX-обновлений.
+- `E2E_DEMO_TYPE_DELAY_SECONDS` — задержка между символами при наборе текста.
+- `E2E_DEMO_FINAL_DELAY_SECONDS` — сколько держать финальный кадр перед закрытием окна.
+
+Параметры для `make test-e2e-openai-demo` можно переопределять:
+
+```bash
+make test-e2e-openai-demo DEMO_STEP_DELAY=3.5 DEMO_TYPE_DELAY=0.12 DEMO_FINAL_DELAY=12
+```
 
 При падении browser E2E screenshot и HTML page source сохраняются в `.pytest_artifacts/e2e/`.
 

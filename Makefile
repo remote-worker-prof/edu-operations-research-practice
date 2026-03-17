@@ -8,8 +8,12 @@ PORT ?= 8000
 COMPOSE ?= docker compose
 PYTEST_ARGS ?=
 RUFF_ARGS ?=
+DEMO_STEP_DELAY ?= 2.5
+DEMO_TYPE_DELAY ?= 0.09
+DEMO_FINAL_DELAY ?= 8
+DEMO_INITIAL_DELAY ?= 2
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai test-e2e-openai-demo docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -78,7 +82,22 @@ test-e2e: ## Run deterministic Selenium browser tests
 	$(UV) run --all-packages pytest tests/e2e -m "e2e and not openai_smoke" $(PYTEST_ARGS)
 
 test-e2e-openai: ## Run optional real OpenAI browser smoke
-	E2E_OPENAI_SMOKE=1 $(UV) run --all-packages pytest tests/e2e -m "openai_smoke" $(PYTEST_ARGS)
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	$(UV) run --all-packages pytest tests/e2e -m "openai_smoke" $(PYTEST_ARGS)'
+
+test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with long human pauses
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	export E2E_HEADLESS=0; \
+	export E2E_DEMO_MODE=1; \
+	export E2E_DEMO_INITIAL_DELAY_SECONDS=$(DEMO_INITIAL_DELAY); \
+	export E2E_DEMO_STEP_DELAY_SECONDS=$(DEMO_STEP_DELAY); \
+	export E2E_DEMO_TYPE_DELAY_SECONDS=$(DEMO_TYPE_DELAY); \
+	export E2E_DEMO_FINAL_DELAY_SECONDS=$(DEMO_FINAL_DELAY); \
+	$(UV) run --all-packages pytest \
+	tests/e2e/test_web_chat_selenium.py::test_openai_browser_smoke \
+	-vv -s $(PYTEST_ARGS)'
 
 docs-check: ## Validate baseline docstring coverage (module + public callables)
 	$(UV) run python scripts/check_doc_coverage.py

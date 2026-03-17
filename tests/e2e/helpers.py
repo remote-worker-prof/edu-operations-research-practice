@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
+import os
+import time
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
+
+
+def _demo_mode_enabled() -> bool:
+    """Определяет, включён ли screencast/demo режим для Selenium."""
+    value = os.getenv("E2E_DEMO_MODE", "0").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _float_env(name: str, default: float) -> float:
+    """Читает float-переменную окружения с безопасным fallback."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return default
 
 
 class ChatPage:
@@ -14,11 +34,22 @@ class ChatPage:
         self.driver = driver
         self.base_url = base_url.rstrip("/")
         self.wait = WebDriverWait(driver, timeout)
+        self.demo_mode = _demo_mode_enabled()
+        self.demo_initial_delay = _float_env("E2E_DEMO_INITIAL_DELAY_SECONDS", 2.0)
+        self.demo_step_delay = _float_env("E2E_DEMO_STEP_DELAY_SECONDS", 2.5)
+        self.demo_type_delay = _float_env("E2E_DEMO_TYPE_DELAY_SECONDS", 0.09)
+        self.demo_final_delay = _float_env("E2E_DEMO_FINAL_DELAY_SECONDS", 8.0)
+
+    def _pause(self, seconds: float) -> None:
+        """Делает реальную паузу только в demo-режиме."""
+        if self.demo_mode and seconds > 0:
+            time.sleep(seconds)
 
     def open(self) -> "ChatPage":
         """Открывает стартовую страницу и ждёт первичный workspace."""
         self.driver.get(f"{self.base_url}/")
         self.wait_for_workspace()
+        self._pause(self.demo_initial_delay)
         return self
 
     def wait_for_workspace(self):
@@ -49,6 +80,7 @@ class ChatPage:
         """Выбирает alias модели в `<select>`."""
         select = Select(self.driver.find_element(By.ID, "model-alias-select"))
         select.select_by_value(alias)
+        self._pause(self.demo_step_delay)
         return self
 
     def send_message(self, message: str) -> "ChatPage":
@@ -56,13 +88,25 @@ class ChatPage:
         previous_workspace = self.wait_for_workspace()
         message_input = self.wait.until(EC.element_to_be_clickable((By.ID, "chat-message-input")))
         message_input.clear()
-        message_input.send_keys(message)
+        if self.demo_mode:
+            for character in message:
+                message_input.send_keys(character)
+                self._pause(self.demo_type_delay)
+            self._pause(self.demo_step_delay)
+        else:
+            message_input.send_keys(message)
         self.driver.find_element(By.ID, "chat-submit-button").click()
         self.wait.until(EC.staleness_of(previous_workspace))
         self.wait_for_workspace()
         self.wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="chat-message"]'))
         )
+        self._pause(self.demo_step_delay)
+        return self
+
+    def pause_for_screencast_finish(self) -> "ChatPage":
+        """Держит финальный кадр открытым в demo-режиме."""
+        self._pause(self.demo_final_delay)
         return self
 
     def chat_messages(self, *, role: str | None = None) -> list[str]:

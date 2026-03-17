@@ -189,3 +189,4 @@ def test_openai_browser_smoke(chat_page, require_openai_smoke) -> None:
     assert "Результат рассчитан детерминированным OR-пайплайном" not in chat_page.last_chat_message(
         role="assistant"
     )
+    chat_page.pause_for_screencast_finish()
