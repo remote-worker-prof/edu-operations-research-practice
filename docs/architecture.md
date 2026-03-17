@@ -158,6 +158,7 @@
 ## 8. Смежная документация
 
 - [architecture_for_beginners_ru.md](architecture_for_beginners_ru.md) — длинный beginner-friendly разбор архитектуры простыми словами.
+- [chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md) — подробный beginner-friendly guide по работе с чатом, командами и форматами ввода.
 - `docs/dev_build_run.md` — локальный/dev/docker запуск.
 - `docs/git_ssh_github.md` — Git/SSH/GitHub workflow для репозитория.
 - `docs/or_subgraph_math.md` — краткая формализация оптимизационных моделей OR-подграфа.
