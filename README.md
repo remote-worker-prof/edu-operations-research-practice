@@ -253,6 +253,7 @@ piece-by-piece вводу и stage-by-stage примерам, смотрите
 - [docs/architecture_for_beginners_ru.md](docs/architecture_for_beginners_ru.md) — длинное простое введение в архитектуру проекта для новичка.
 - [docs/chat_usage_for_beginners_ru.md](docs/chat_usage_for_beginners_ru.md) — подробный guide по тому, как общаться с чатом и в каком виде отправлять данные.
 - [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) — отдельный beginner-friendly reference по языку ввода чата, DSL-формам и safe-практикам.
+- [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md) — набор записанных Selenium/Chromium MP4-роликов для демонстрации.
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.
