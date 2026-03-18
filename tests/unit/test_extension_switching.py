@@ -58,6 +58,7 @@ def test_sample_manifest_stage_aliases_are_resolved_by_generic_command_parser() 
     assert alias_map["courses"] == "courses"
     assert alias_map["курсы"] == "courses"
     assert alias_map["budget"] == "time_budget"
+    assert alias_map["time budget"] == "time_budget"
     assert alias_map["приоритеты"] == "priorities"
 
     result = parse_extension_command(
@@ -67,6 +68,59 @@ def test_sample_manifest_stage_aliases_are_resolved_by_generic_command_parser() 
     )
     assert result.action == "stage_json"
     assert result.stage == "time_budget"
+
+
+def test_generic_parser_supports_multiword_stage_labels_in_edit_json_and_set() -> None:
+    """Проверяет longest-match resolution для multi-word stage labels/aliases."""
+    manifest = StudyPlannerExtensionProvider().get_manifest()
+
+    edit_ru = parse_extension_command(
+        message="edit бюджет времени",
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert edit_ru.action == "edit_stage"
+    assert edit_ru.stage == "time_budget"
+
+    json_ru = parse_extension_command(
+        message='json бюджет времени {"weekly_hours":12,"weeks":4}',
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert json_ru.action == "stage_json"
+    assert json_ru.stage == "time_budget"
+    assert json_ru.patch is not None
+    assert json_ru.patch.payload == {"weekly_hours": 12, "weeks": 4}
+
+    set_ru = parse_extension_command(
+        message="set бюджет времени.weekly_hours 12",
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert set_ru.action == "set_field"
+    assert set_ru.stage == "time_budget"
+    assert set_ru.patch is not None
+    assert set_ru.patch.path == "weekly_hours"
+    assert set_ru.patch.value == 12
+
+    json_en = parse_extension_command(
+        message='json time budget {"weekly_hours":10,"weeks":3}',
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert json_en.action == "stage_json"
+    assert json_en.stage == "time_budget"
+
+    set_en = parse_extension_command(
+        message="set time budget.weeks 5",
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert set_en.action == "set_field"
+    assert set_en.stage == "time_budget"
+    assert set_en.patch is not None
+    assert set_en.patch.path == "weeks"
+    assert set_en.patch.value == 5
 
 
 def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:

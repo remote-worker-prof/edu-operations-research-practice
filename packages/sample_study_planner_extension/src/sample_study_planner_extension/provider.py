@@ -52,7 +52,7 @@ _MANIFEST = ExtensionManifest(
         StageSpec(
             stage_id="time_budget",
             label="Бюджет времени",
-            aliases=["time_budget", "time", "budget", "время", "бюджет"],
+            aliases=["time_budget", "time budget", "time", "budget", "время", "бюджет"],
             examples=['json time_budget {"weekly_hours":12,"weeks":4}'],
             field_specs=[
                 FieldSpec(
@@ -92,7 +92,7 @@ _MANIFEST = ExtensionManifest(
     ],
     stage_aliases={
         "courses": ["course", "courses", "курс", "курсы"],
-        "time_budget": ["time_budget", "time", "budget", "время", "бюджет"],
+        "time_budget": ["time_budget", "time budget", "time", "budget", "время", "бюджет"],
         "priorities": ["priority", "priorities", "приоритет", "приоритеты", "веса"],
     },
     examples=[

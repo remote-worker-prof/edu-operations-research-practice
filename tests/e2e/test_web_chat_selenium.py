@@ -801,6 +801,23 @@ def test_sample_extension_command_flow_runs_and_renders_generic_results(chat_pag
 
 
 @pytest.mark.extensions_e2e
+def test_sample_extension_multiword_stage_labels_work_in_browser_flow(chat_page) -> None:
+    """Проверяет multi-word stage labels/aliases в UI для edit/json/set."""
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("start")
+    chat_page.send_message(STUDY_COURSES_JSON)
+    chat_page.send_message("edit бюджет времени")
+    chat_page.send_message(STUDY_TIME_BUDGET_SHORTCUT_JSON)
+    chat_page.send_message("set time budget.weekly_hours 12")
+    chat_page.send_message(STUDY_PRIORITIES_JSON)
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("run")
+    _assert_study_planner_results_rendered(chat_page)
+
+
+@pytest.mark.extensions_e2e
 def test_extension_switch_is_blocked_until_reset(chat_page) -> None:
     """Проверяет session policy: switch запрещён в непустой сессии без reset."""
     chat_page.select_model("local_default")

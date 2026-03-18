@@ -813,6 +813,49 @@ def test_api_can_load_sample_extension_default_preset_and_run() -> None:
     assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
 
 
+def test_api_sample_extension_accepts_multiword_stage_labels_in_json_and_set() -> None:
+    """Проверяет multi-word stage labels через JSON API для sample extension."""
+    start_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session"]["session_id"]
+
+    commands = [
+        'json courses {"names":["Math","ML","Databases"],"hours_required":[30,24,18]}',
+        'json бюджет времени {"weekly_hours":10,"weeks":4}',
+        "set time budget.weekly_hours 12",
+        'json priorities {"weights":[0.5,0.3,0.2]}',
+        "run",
+    ]
+
+    payload = None
+    for command in commands:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "local_default",
+                "extension_alias": "study_planner",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+    assert payload is not None
+    assert payload["session"]["extension_state"]["draft"]["time_budget"] == {
+        "weekly_hours": 12,
+        "weeks": 4,
+    }
+    assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
+
+
 def test_api_serializes_dataclass_extension_results_in_turn_and_session_payloads() -> None:
     """Проверяет round-trip dataclass result через generic extension transport."""
     local_client = _client_with_extension_provider(

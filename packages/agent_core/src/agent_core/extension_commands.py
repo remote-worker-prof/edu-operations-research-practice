@@ -33,6 +33,52 @@ def _resolve_stage(raw: str, alias_map: dict[str, str]) -> str | None:
     return alias_map.get(raw.strip().lower())
 
 
+def _stage_alias_items_by_specificity(alias_map: dict[str, str]) -> list[tuple[str, str]]:
+    """Returns stage aliases sorted so multi-word/long aliases win first."""
+    return sorted(alias_map.items(), key=lambda item: (-len(item[0]), item[0]))
+
+
+def _resolve_json_stage_and_payload(
+    command_body: str,
+    alias_map: dict[str, str],
+) -> tuple[str | None, str | None, str | None]:
+    """Splits `json <stage> { ... }` into a canonical stage_id and JSON payload text."""
+    json_start = command_body.find("{")
+    if json_start < 0:
+        return None, None, None
+
+    stage_raw = command_body[:json_start].strip()
+    payload_text = command_body[json_start:].strip()
+    if not stage_raw or not payload_text:
+        return None, None, None
+    return _resolve_stage(stage_raw, alias_map), stage_raw, payload_text
+
+
+def _resolve_set_stage_path_and_value(
+    command_body: str,
+    alias_map: dict[str, str],
+) -> tuple[str | None, str | None, str | None, bool]:
+    """Splits `set <stage>.<field_path> <value>` with longest stage-alias matching."""
+    stripped = command_body.strip()
+    normalized = stripped.lower()
+
+    for alias, stage_id in _stage_alias_items_by_specificity(alias_map):
+        prefix = f"{alias}."
+        if not normalized.startswith(prefix):
+            continue
+        remainder = stripped[len(alias) + 1 :]
+        if not remainder or " " not in remainder:
+            return None, None, None, False
+        path, value_text = remainder.split(" ", maxsplit=1)
+        path = path.strip()
+        value_text = value_text.strip()
+        if not path or not value_text:
+            return None, None, None, False
+        return stage_id, path, value_text, False
+
+    return None, None, None, "." in stripped and " " in stripped
+
+
 def _parse_scalar(value_text: str) -> Any:
     """Parses a scalar, JSON array/object, or leaves the raw string as fallback."""
     value_text = value_text.strip()
@@ -93,14 +139,16 @@ def parse_extension_command(
         return CommandResult(action="edit_stage", stage=maybe_stage)
 
     if lower.startswith("json "):
-        parts = text.split(" ", maxsplit=2)
-        if len(parts) < 3:
+        stage, _, payload_text = _resolve_json_stage_and_payload(
+            text[len("json ") :],
+            alias_map,
+        )
+        if payload_text is None:
             return CommandResult(action="invalid", errors=["Формат: json <stage> { ... }"])
-        stage = _resolve_stage(parts[1], alias_map)
         if stage is None:
             return CommandResult(action="invalid", errors=["Неизвестный stage для json"])
         try:
-            payload = json.loads(parts[2])
+            payload = json.loads(payload_text)
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
         except json.JSONDecodeError as exc:
@@ -112,18 +160,18 @@ def parse_extension_command(
         )
 
     if lower.startswith("set "):
-        parts = text.split(" ", maxsplit=2)
-        if len(parts) < 3 or "." not in parts[1]:
+        stage, path, value_text, unknown_stage = _resolve_set_stage_path_and_value(
+            text[len("set ") :],
+            alias_map,
+        )
+        if stage is None or path is None or value_text is None:
+            if unknown_stage:
+                return CommandResult(action="invalid", errors=["Неизвестный stage для set"])
             return CommandResult(
                 action="invalid",
                 errors=["Формат: set <stage>.<field_path> <value>"],
             )
-        target = parts[1]
-        value = _parse_scalar(parts[2])
-        stage_raw, path = target.split(".", maxsplit=1)
-        stage = _resolve_stage(stage_raw, alias_map)
-        if stage is None:
-            return CommandResult(action="invalid", errors=["Неизвестный stage для set"])
+        value = _parse_scalar(value_text)
         return CommandResult(
             action="set_field",
             stage=stage,
