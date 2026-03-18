@@ -28,7 +28,7 @@ slice платформы расширений:
 
 - Python 3.11 + `uv`
 - `LangGraph` (детерминированные графы)
-- `LiteLLM` (OpenAI, GigaChat, local OpenAI-compatible)
+- `LiteLLM` (OpenAI, GigaChat, локальный/сторонний LLM-сервер с OpenAI-compatible API)
 - `SciPy`, `NetworkX`, `OR-Tools` (реальные OR-солверы)
 - `FastAPI` + `Jinja2` + `HTMX` (легковесный веб-интерфейс)
 
@@ -126,7 +126,7 @@ Visible deterministic extension demo without recording:
 make test-e2e-extensions-demo
 ```
 
-Recorded deterministic extension mini-pack:
+Recorded extension mini-pack with cloud OpenAI selector:
 
 ```bash
 make test-e2e-extensions-video-pack
@@ -275,7 +275,7 @@ make test-e2e-openai-short-video-pack VIDEO_CASE=nl_reject_short
 - `validation_recovery_short`
 - `ambiguity_resolution_short`
 
-Доступные deterministic extension video scenarios:
+Доступные extension video scenarios:
 
 - `extensions_selector_overview`
 - `switch_to_sample_and_run`
@@ -287,8 +287,8 @@ make test-e2e-openai-short-video-pack VIDEO_CASE=nl_reject_short
 - `make test-e2e` — быстрый deterministic headless regression suite.
 - `make test-e2e-openai` — быстрый real-provider smoke без записи.
 - `make test-e2e-extensions` — быстрый deterministic Selenium-контур для extension switching.
-- `make test-e2e-extensions-demo` — видимый deterministic demo-показ selector/switching.
-- `make test-e2e-extensions-video-pack` — записывает набор из 4 deterministic extension роликов.
+- `make test-e2e-extensions-demo` — видимый demo-показ extension switching с выбранным `openai_default`.
+- `make test-e2e-extensions-video-pack` — записывает набор из 4 extension роликов с выбранным `openai_default`.
 - `make test-e2e-openai-demo` — видимый demo-запуск с паузами, без записи.
 - `make test-e2e-openai-demo-record` — видимый demo-запуск с записью одного ролика.
 - `make test-e2e-openai-short-demo` — короткий видимый demo-запуск без записи.
@@ -308,11 +308,14 @@ MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/vi
 - `gigachat_default`
 - `local_default`
 
+`local_default` не означает "локальный OpenAI". Это технический alias для любого
+локального или стороннего LLM-сервера, который принимает OpenAI-compatible HTTP API.
+
 Переменные окружения:
 
 - OpenAI: `OPENAI_API_KEY`, опционально `OPENAI_MODEL`
 - GigaChat: `GIGACHAT_API_KEY`, опционально `GIGACHAT_MODEL`, `GIGACHAT_BASE_URL`
-- Local: `LOCAL_LLM_BASE_URL`, опционально `LOCAL_LLM_MODEL`, `LOCAL_LLM_API_KEY`
+- Локальный/сторонний OpenAI-compatible API: `LOCAL_LLM_BASE_URL`, опционально `LOCAL_LLM_MODEL`, `LOCAL_LLM_API_KEY`
 
 Если провайдер недоступен, приложение продолжает работу с fallback-логикой:
 - сбор структурированных OR-входов идёт через детерминированный parser/wizard;

@@ -105,8 +105,9 @@ test-e2e: ## Run deterministic Selenium browser tests
 test-e2e-extensions: ## Run deterministic Selenium tests for extension switching
 	$(UV) run --all-packages pytest tests/e2e -m "extensions_e2e and not extension_video_demo" $(PYTEST_ARGS)
 
-test-e2e-extensions-demo: ## Run visible deterministic extension demo without recording
+test-e2e-extensions-demo: ## Run visible extension demo with cloud OpenAI selector
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
 	export E2E_HEADLESS=0; \
 	export E2E_DEMO_MODE=1; \
 	export E2E_DEMO_INITIAL_DELAY_SECONDS="$(SHORT_DEMO_INITIAL_DELAY)"; \
@@ -119,8 +120,9 @@ test-e2e-extensions-demo: ## Run visible deterministic extension demo without re
 	tests/e2e/test_web_chat_selenium.py::test_extensions_video_selector_overview \
 	-vv -s $(PYTEST_ARGS)'
 
-test-e2e-extensions-video-pack: ## Record the deterministic extension mini-pack (4 scenarios)
+test-e2e-extensions-video-pack: ## Record the extension mini-pack with cloud OpenAI selector (4 scenarios)
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
 	export E2E_HEADLESS=0; \
 	export E2E_DEMO_MODE=1; \
 	export E2E_RECORD_VIDEO=1; \

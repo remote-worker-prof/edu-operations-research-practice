@@ -68,7 +68,7 @@ MODEL_ALIASES: dict[str, ModelAliasConfig] = {
     ),
     "local_default": ModelAliasConfig(
         alias="local_default",
-        display_name="Локальная OpenAI-compatible",
+        display_name="Локальный LLM-сервер (OpenAI-compatible API)",
         model_env="LOCAL_LLM_MODEL",
         default_model="openai/local-model",
         api_key_env="LOCAL_LLM_API_KEY",

@@ -370,6 +370,7 @@ def require_openai_provider(request) -> None:
         request.node.get_closest_marker("openai_smoke")
         or request.node.get_closest_marker("openai_video_demo")
         or request.node.get_closest_marker("openai_short_video_demo")
+        or request.node.get_closest_marker("extension_video_demo")
     )
     if not needs_openai:
         return
@@ -847,12 +848,13 @@ def test_switch_back_to_default_or_after_sample_reset_and_run(chat_page) -> None
 
 
 @pytest.mark.extension_video_demo
-def test_extensions_video_selector_overview(chat_page) -> None:
+def test_extensions_video_selector_overview(chat_page, require_openai_provider) -> None:
     """Короткий deterministic ролик: selector и switch на sample extension."""
+    del require_openai_provider
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_model", "openai_default"),
             ScreencastStep("select_extension", "study_planner"),
             ScreencastStep(
                 "type_message", "help", after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS
@@ -865,12 +867,13 @@ def test_extensions_video_selector_overview(chat_page) -> None:
 
 
 @pytest.mark.extension_video_demo
-def test_extensions_video_switch_to_sample_and_run(chat_page) -> None:
+def test_extensions_video_switch_to_sample_and_run(chat_page, require_openai_provider) -> None:
     """Короткий deterministic ролик: full sample-extension run."""
+    del require_openai_provider
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_model", "openai_default"),
             ScreencastStep("select_extension", "study_planner"),
             ScreencastStep("type_message", "start"),
             ScreencastStep("chunked_message", STUDY_COURSES_JSON),
@@ -890,12 +893,13 @@ def test_extensions_video_switch_to_sample_and_run(chat_page) -> None:
 
 
 @pytest.mark.extension_video_demo
-def test_extensions_video_blocked_switch_until_reset(chat_page) -> None:
+def test_extensions_video_blocked_switch_until_reset(chat_page, require_openai_provider) -> None:
     """Короткий deterministic ролик: blocked switch policy без reset."""
+    del require_openai_provider
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_model", "openai_default"),
             ScreencastStep("type_message", "load preset demo"),
             ScreencastStep("select_extension", "study_planner"),
             ScreencastStep(
@@ -910,12 +914,13 @@ def test_extensions_video_blocked_switch_until_reset(chat_page) -> None:
 
 
 @pytest.mark.extension_video_demo
-def test_extensions_video_switch_back_to_default_or(chat_page) -> None:
+def test_extensions_video_switch_back_to_default_or(chat_page, require_openai_provider) -> None:
     """Короткий deterministic ролик: reset, switch back, then run default OR flow."""
+    del require_openai_provider
     _run_screencast_script(
         chat_page,
         [
-            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_model", "openai_default"),
             ScreencastStep("select_extension", "study_planner"),
             ScreencastStep("type_message", "start"),
             ScreencastStep("chunked_message", STUDY_COURSES_JSON),

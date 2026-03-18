@@ -7,6 +7,11 @@ slice с extensions и переключением между ними в UI.
 они показывают selector extensions, policy `reset -> switch`, sample extension
 `study_planner` и возврат к built-in `default_or`.
 
+Важно: в selector модели в этих роликах используется `openai_default`, то есть
+облачный OpenAI. При этом сам `study_planner` остаётся детерминированным extension,
+поэтому в части роликов облачный провайдер просто выбран в UI для единообразия,
+а в сценарии возврата к `default_or` он уже участвует и в полном OR-flow.
+
 ## Сценарии
 
 - `extensions_selector_overview.mp4`
