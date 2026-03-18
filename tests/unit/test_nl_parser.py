@@ -40,6 +40,12 @@ def test_parse_nl_turn_leaves_help_command_for_deterministic_parser() -> None:
     assert result.intent == "none"
 
 
+def test_parse_nl_turn_leaves_russian_show_alias_for_deterministic_parser() -> None:
+    """Проверяет, что `показать` не перехватывается NL-слоем."""
+    result = parse_nl_turn(message="показать", current_stage="production")
+    assert result.intent == "none"
+
+
 def test_parse_nl_turn_leaves_raw_json_shortcut_for_command_parser() -> None:
     """Проверяет, что raw JSON shortcut не перехватывается NL-слоем."""
     result = parse_nl_turn(

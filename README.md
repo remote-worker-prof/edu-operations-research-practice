@@ -121,6 +121,14 @@ Visible OpenAI demo with MP4 recording of the Chromium window:
 make test-e2e-openai-demo-record
 ```
 
+Visible short OpenAI demo and compact short-video pack:
+
+```bash
+make test-e2e-openai-short-demo
+make test-e2e-openai-short-demo-record
+make test-e2e-openai-short-video-pack
+```
+
 Full OpenAI video pack with 5 recorded Selenium scenarios:
 
 ```bash
@@ -130,6 +138,7 @@ make test-e2e-openai-video-pack
 К записанным MP4 теперь есть и подробные текстовые companion-разборы:
 
 - [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md)
+- [docs/assets/selenium_videos/short/README.md](docs/assets/selenium_videos/short/README.md)
 - [docs/video_scenarios/README.md](docs/video_scenarios/README.md)
 
 Visible demo/video target'ы теперь специально замедлены по умолчанию для занятий,
@@ -139,7 +148,9 @@ Visible demo/video target'ы теперь специально замедлен�
 - `make test-e2e-openai`
 
 Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`,
-`make test-e2e-openai-demo-record` и `make test-e2e-openai-video-pack`)
+`make test-e2e-openai-demo-record`, `make test-e2e-openai-short-demo`,
+`make test-e2e-openai-short-demo-record`, `make test-e2e-openai-short-video-pack`
+и `make test-e2e-openai-video-pack`)
 запускаются через login `bash`, чтобы подхватить `OPENAI_API_KEY`
 из `~/.bash_profile`, `~/.profile` или `~/.bashrc`.
 
@@ -156,6 +167,8 @@ Prerequisites и override-переменные для browser harness:
 - `E2E_DEMO_STEP_DELAY_SECONDS` — пауза между действиями и после HTMX-обновлений.
 - `E2E_DEMO_TYPE_DELAY_SECONDS` — задержка между символами при наборе текста.
 - `E2E_DEMO_FINAL_DELAY_SECONDS` — сколько держать финальный кадр перед закрытием окна.
+- `E2E_DEMO_CHUNK_SIZE` — размер чанка для `chunked`-набора длинных сообщений.
+- `E2E_DEMO_CHUNK_DELAY_SECONDS` — пауза между чанками при `chunked`-наборе.
 - `E2E_RECORD_VIDEO=1` — включает запись видимого окна Chromium в MP4.
 - `E2E_VIDEO_OUTPUT_DIR` — каталог для `.mp4` артефактов.
 - `E2E_VIDEO_FPS` — частота кадров при записи окна.
@@ -188,10 +201,28 @@ make test-e2e-openai-demo-record \
   VIDEO_FPS=20
 ```
 
+Параметры для короткого demo-пака можно переопределять отдельно:
+
+```bash
+make test-e2e-openai-short-demo \
+  SHORT_DEMO_INITIAL_DELAY=1.2 \
+  SHORT_DEMO_STEP_DELAY=1 \
+  SHORT_DEMO_TYPE_DELAY=0.05 \
+  SHORT_DEMO_FINAL_DELAY=3 \
+  SHORT_DEMO_CHUNK_SIZE=18 \
+  SHORT_DEMO_CHUNK_DELAY=0.1
+```
+
 Полный video pack можно сузить до одного сценария:
 
 ```bash
 make test-e2e-openai-video-pack VIDEO_CASE=manual_json_flow
+```
+
+Короткий video pack тоже можно сузить до одного сценария:
+
+```bash
+make test-e2e-openai-short-video-pack VIDEO_CASE=nl_reject_short
 ```
 
 Доступные recorded OpenAI video scenarios:
@@ -202,16 +233,31 @@ make test-e2e-openai-video-pack VIDEO_CASE=manual_json_flow
 - `validation_recovery_flow`
 - `ambiguity_resolution_flow`
 
-Пять основных режимов запуска Selenium:
+Доступные recorded short OpenAI video scenarios:
+
+- `preset_overview_short`
+- `russian_aliases_short`
+- `wizard_and_raw_json_short`
+- `manual_json_run_short`
+- `nl_confirm_short`
+- `nl_reject_short`
+- `validation_recovery_short`
+- `ambiguity_resolution_short`
+
+Восемь основных режимов запуска Selenium:
 
 - `make test-e2e` — быстрый deterministic headless regression suite.
 - `make test-e2e-openai` — быстрый real-provider smoke без записи.
 - `make test-e2e-openai-demo` — видимый demo-запуск с паузами, без записи.
 - `make test-e2e-openai-demo-record` — видимый demo-запуск с записью одного ролика.
+- `make test-e2e-openai-short-demo` — короткий видимый demo-запуск без записи.
+- `make test-e2e-openai-short-demo-record` — запись одного короткого polished-ролика.
+- `make test-e2e-openai-short-video-pack` — записывает набор из 8 коротких OpenAI роликов.
 - `make test-e2e-openai-video-pack` — записывает полный набор из 5 OpenAI роликов.
 
 При падении browser E2E screenshot и HTML page source сохраняются в `.pytest_artifacts/e2e/`.
-MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/videos/` по умолчанию.
+MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/videos/` по умолчанию,
+а short-pack по умолчанию пишет временные артефакты в `.pytest_artifacts/e2e/videos/short/`.
 
 ## Провайдеры моделей через LiteLLM
 
@@ -276,6 +322,7 @@ exact сообщениями в чат и ожидаемыми checkpoints, см
 - [docs/chat_usage_for_beginners_ru.md](docs/chat_usage_for_beginners_ru.md) — подробный guide по тому, как общаться с чатом и в каком виде отправлять данные.
 - [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) — отдельный beginner-friendly reference по языку ввода чата, DSL-формам и safe-практикам.
 - [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md) — набор записанных Selenium/Chromium MP4-роликов для демонстрации.
+- [docs/assets/selenium_videos/short/README.md](docs/assets/selenium_videos/short/README.md) — короткий polished-набор Selenium/Chromium роликов для быстрых показов и скринкастов.
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.

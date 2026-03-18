@@ -31,6 +31,18 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
+    """Читает int-переменную окружения с безопасным fallback."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return max(parsed, minimum)
+
+
 class ChatPage:
     """Тонкая page-object обёртка над web-чатом проекта."""
 
@@ -43,8 +55,10 @@ class ChatPage:
         self.demo_step_delay = _float_env("E2E_DEMO_STEP_DELAY_SECONDS", 2.5)
         self.demo_type_delay = _float_env("E2E_DEMO_TYPE_DELAY_SECONDS", 0.09)
         self.demo_final_delay = _float_env("E2E_DEMO_FINAL_DELAY_SECONDS", 8.0)
-        self.demo_chunk_size = _DEMO_CHUNK_SIZE
-        self.demo_chunk_delay = _DEMO_CHUNK_DELAY_SECONDS
+        self.demo_chunk_size = _int_env("E2E_DEMO_CHUNK_SIZE", _DEMO_CHUNK_SIZE, minimum=1)
+        self.demo_chunk_delay = _float_env(
+            "E2E_DEMO_CHUNK_DELAY_SECONDS", _DEMO_CHUNK_DELAY_SECONDS
+        )
 
     def _pause(self, seconds: float) -> None:
         """Делает реальную паузу только в demo-режиме."""

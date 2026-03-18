@@ -27,6 +27,7 @@ _COMMAND_PREFIXES = (
     "show input",
     "show",
     "показать ввод",
+    "показать",
     "next",
     "далее",
     "json ",

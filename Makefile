@@ -12,11 +12,20 @@ DEMO_STEP_DELAY ?= 4
 DEMO_TYPE_DELAY ?= 0.16
 DEMO_FINAL_DELAY ?= 18
 DEMO_INITIAL_DELAY ?= 4
+DEMO_CHUNK_SIZE ?= 12
+DEMO_CHUNK_DELAY ?= 0.32
+SHORT_DEMO_STEP_DELAY ?= 1
+SHORT_DEMO_TYPE_DELAY ?= 0.05
+SHORT_DEMO_FINAL_DELAY ?= 3
+SHORT_DEMO_INITIAL_DELAY ?= 1.2
+SHORT_DEMO_CHUNK_SIZE ?= 18
+SHORT_DEMO_CHUNK_DELAY ?= 0.1
 VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos
+SHORT_VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos/short
 VIDEO_FPS ?= 15
 VIDEO_CASE ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack test-e2e-openai-short-demo test-e2e-openai-short-demo-record test-e2e-openai-short-video-pack docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -90,7 +99,7 @@ test-integration: ## Run integration tests only
 	$(UV) run --all-packages pytest tests/integration $(PYTEST_ARGS)
 
 test-e2e: ## Run deterministic Selenium browser tests
-	$(UV) run --all-packages pytest tests/e2e -m "e2e and not openai_smoke and not openai_video_demo" $(PYTEST_ARGS)
+	$(UV) run --all-packages pytest tests/e2e -m "e2e and not openai_smoke and not openai_video_demo and not openai_short_video_demo" $(PYTEST_ARGS)
 
 test-e2e-openai: ## Run optional real OpenAI browser smoke
 	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
@@ -106,6 +115,8 @@ test-e2e-openai-demo: ## Run visible OpenAI Selenium demo with lecture-friendly 
 	export E2E_DEMO_STEP_DELAY_SECONDS=$(DEMO_STEP_DELAY); \
 	export E2E_DEMO_TYPE_DELAY_SECONDS=$(DEMO_TYPE_DELAY); \
 	export E2E_DEMO_FINAL_DELAY_SECONDS=$(DEMO_FINAL_DELAY); \
+	export E2E_DEMO_CHUNK_SIZE=$(DEMO_CHUNK_SIZE); \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS=$(DEMO_CHUNK_DELAY); \
 	$(UV) run --all-packages pytest \
 	tests/e2e/test_web_chat_selenium.py::test_openai_video_preset_overview \
 	-vv -s $(PYTEST_ARGS)'
@@ -120,6 +131,8 @@ test-e2e-openai-demo-record: ## Run visible OpenAI Selenium demo, slow and recor
 	export E2E_DEMO_STEP_DELAY_SECONDS="$(DEMO_STEP_DELAY)"; \
 	export E2E_DEMO_TYPE_DELAY_SECONDS="$(DEMO_TYPE_DELAY)"; \
 	export E2E_DEMO_FINAL_DELAY_SECONDS="$(DEMO_FINAL_DELAY)"; \
+	export E2E_DEMO_CHUNK_SIZE="$(DEMO_CHUNK_SIZE)"; \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS="$(DEMO_CHUNK_DELAY)"; \
 	export E2E_VIDEO_OUTPUT_DIR="$(VIDEO_OUTPUT_DIR)"; \
 	export E2E_VIDEO_FPS="$(VIDEO_FPS)"; \
 	$(UV) run --all-packages pytest \
@@ -136,6 +149,8 @@ test-e2e-openai-video-pack: ## Record the full slow OpenAI Selenium video pack (
 	export E2E_DEMO_STEP_DELAY_SECONDS="$(DEMO_STEP_DELAY)"; \
 	export E2E_DEMO_TYPE_DELAY_SECONDS="$(DEMO_TYPE_DELAY)"; \
 	export E2E_DEMO_FINAL_DELAY_SECONDS="$(DEMO_FINAL_DELAY)"; \
+	export E2E_DEMO_CHUNK_SIZE="$(DEMO_CHUNK_SIZE)"; \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS="$(DEMO_CHUNK_DELAY)"; \
 	export E2E_VIDEO_OUTPUT_DIR="$(VIDEO_OUTPUT_DIR)"; \
 	export E2E_VIDEO_FPS="$(VIDEO_FPS)"; \
 	video_case_args=(); \
@@ -144,6 +159,60 @@ test-e2e-openai-video-pack: ## Record the full slow OpenAI Selenium video pack (
 	fi; \
 	$(UV) run --all-packages pytest tests/e2e \
 	-m "openai_video_demo" "$${video_case_args[@]}" -vv -s $(PYTEST_ARGS)'
+
+test-e2e-openai-short-demo: ## Run visible short OpenAI Selenium demo with compact pacing
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	export E2E_HEADLESS=0; \
+	export E2E_DEMO_MODE=1; \
+	export E2E_DEMO_INITIAL_DELAY_SECONDS="$(SHORT_DEMO_INITIAL_DELAY)"; \
+	export E2E_DEMO_STEP_DELAY_SECONDS="$(SHORT_DEMO_STEP_DELAY)"; \
+	export E2E_DEMO_TYPE_DELAY_SECONDS="$(SHORT_DEMO_TYPE_DELAY)"; \
+	export E2E_DEMO_FINAL_DELAY_SECONDS="$(SHORT_DEMO_FINAL_DELAY)"; \
+	export E2E_DEMO_CHUNK_SIZE="$(SHORT_DEMO_CHUNK_SIZE)"; \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS="$(SHORT_DEMO_CHUNK_DELAY)"; \
+	$(UV) run --all-packages pytest \
+	tests/e2e/test_web_chat_selenium.py::test_openai_short_video_preset_overview \
+	-vv -s $(PYTEST_ARGS)'
+
+test-e2e-openai-short-demo-record: ## Run visible short OpenAI Selenium demo and record one compact MP4
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	export E2E_HEADLESS=0; \
+	export E2E_DEMO_MODE=1; \
+	export E2E_RECORD_VIDEO=1; \
+	export E2E_DEMO_INITIAL_DELAY_SECONDS="$(SHORT_DEMO_INITIAL_DELAY)"; \
+	export E2E_DEMO_STEP_DELAY_SECONDS="$(SHORT_DEMO_STEP_DELAY)"; \
+	export E2E_DEMO_TYPE_DELAY_SECONDS="$(SHORT_DEMO_TYPE_DELAY)"; \
+	export E2E_DEMO_FINAL_DELAY_SECONDS="$(SHORT_DEMO_FINAL_DELAY)"; \
+	export E2E_DEMO_CHUNK_SIZE="$(SHORT_DEMO_CHUNK_SIZE)"; \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS="$(SHORT_DEMO_CHUNK_DELAY)"; \
+	export E2E_VIDEO_OUTPUT_DIR="$(SHORT_VIDEO_OUTPUT_DIR)"; \
+	export E2E_VIDEO_FPS="$(VIDEO_FPS)"; \
+	$(UV) run --all-packages pytest \
+	tests/e2e/test_web_chat_selenium.py::test_openai_short_video_preset_overview \
+	-vv -s $(PYTEST_ARGS)'
+
+test-e2e-openai-short-video-pack: ## Record the compact OpenAI Selenium short video pack (8 scenarios)
+	@bash -lc 'export PATH="$$HOME/.local/bin:$$PATH"; \
+	export E2E_OPENAI_SMOKE=1; \
+	export E2E_HEADLESS=0; \
+	export E2E_DEMO_MODE=1; \
+	export E2E_RECORD_VIDEO=1; \
+	export E2E_DEMO_INITIAL_DELAY_SECONDS="$(SHORT_DEMO_INITIAL_DELAY)"; \
+	export E2E_DEMO_STEP_DELAY_SECONDS="$(SHORT_DEMO_STEP_DELAY)"; \
+	export E2E_DEMO_TYPE_DELAY_SECONDS="$(SHORT_DEMO_TYPE_DELAY)"; \
+	export E2E_DEMO_FINAL_DELAY_SECONDS="$(SHORT_DEMO_FINAL_DELAY)"; \
+	export E2E_DEMO_CHUNK_SIZE="$(SHORT_DEMO_CHUNK_SIZE)"; \
+	export E2E_DEMO_CHUNK_DELAY_SECONDS="$(SHORT_DEMO_CHUNK_DELAY)"; \
+	export E2E_VIDEO_OUTPUT_DIR="$(SHORT_VIDEO_OUTPUT_DIR)"; \
+	export E2E_VIDEO_FPS="$(VIDEO_FPS)"; \
+	video_case_args=(); \
+	if [ -n "$(VIDEO_CASE)" ]; then \
+		video_case_args=(-k "$(VIDEO_CASE)"); \
+	fi; \
+	$(UV) run --all-packages pytest tests/e2e \
+	-m "openai_short_video_demo" "$${video_case_args[@]}" -vv -s $(PYTEST_ARGS)'
 
 docs-check: ## Validate baseline docstring coverage (module + public callables)
 	$(UV) run python scripts/check_doc_coverage.py

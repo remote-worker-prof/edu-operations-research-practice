@@ -147,6 +147,23 @@ class _FakeEntryPoint:
         return self.provider
 
 
+def _build_fake_manifest(
+    *,
+    alias: str,
+    title: str,
+    description: str,
+    stage_graph: list[StageSpec],
+) -> ExtensionManifest:
+    """Строит компактный fake manifest для browser startup coverage."""
+    return ExtensionManifest(
+        alias=alias,
+        title=title,
+        description=description,
+        version="0.1.0",
+        stage_graph=stage_graph,
+    )
+
+
 class _BrowserFakeRuntime:
     """Минимальный runtime для startup-discovery smoke в Selenium."""
 
@@ -183,18 +200,11 @@ class _BrowserFakeRuntime:
 class _BrowserFakeProvider:
     """Фейковый provider для browser smoke с непустым registry."""
 
+    def __init__(self, manifest: ExtensionManifest) -> None:
+        self._manifest = manifest
+
     def get_manifest(self) -> ExtensionManifest:
-        return ExtensionManifest(
-            alias="study_planner",
-            title="Study Planner",
-            description="Sample extension manifest for Selenium startup coverage",
-            version="0.1.0",
-            stage_graph=[
-                StageSpec(stage_id="courses", label="Courses"),
-                StageSpec(stage_id="time_budget", label="Time Budget"),
-                StageSpec(stage_id="priorities", label="Priorities", depends_on=["courses"]),
-            ],
-        )
+        return self._manifest
 
     def create_runtime(self) -> _BrowserFakeRuntime:
         return _BrowserFakeRuntime(self.get_manifest())
@@ -202,13 +212,68 @@ class _BrowserFakeProvider:
 
 def _registry_with_study_planner() -> ExtensionRegistry:
     """Строит непустой registry для browser tests текущего foundation-slice."""
+    study_manifest = _build_fake_manifest(
+        alias="study_planner",
+        title="Study Planner",
+        description="Sample extension manifest for Selenium startup coverage",
+        stage_graph=[
+            StageSpec(stage_id="courses", label="Courses"),
+            StageSpec(stage_id="time_budget", label="Time Budget"),
+            StageSpec(stage_id="priorities", label="Priorities", depends_on=["courses"]),
+        ],
+    )
     return ExtensionRegistry.discover(
-        entry_points=[_FakeEntryPoint(name="study_planner", provider=_BrowserFakeProvider)]
+        entry_points=[
+            _FakeEntryPoint(
+                name="study_planner",
+                provider=_BrowserFakeProvider(study_manifest),
+            )
+        ]
+    )
+
+
+def _registry_with_multiple_extensions() -> ExtensionRegistry:
+    """Строит registry с несколькими fake providers для startup browser coverage."""
+    study_manifest = _build_fake_manifest(
+        alias="study_planner",
+        title="Study Planner",
+        description="Study planning extension for Selenium coverage",
+        stage_graph=[
+            StageSpec(stage_id="courses", label="Courses"),
+            StageSpec(stage_id="time_budget", label="Time Budget"),
+            StageSpec(stage_id="priorities", label="Priorities", depends_on=["courses"]),
+        ],
+    )
+    lab_manifest = _build_fake_manifest(
+        alias="lab_planner",
+        title="Lab Planner",
+        description="Lab planning extension for Selenium coverage",
+        stage_graph=[
+            StageSpec(stage_id="labs", label="Labs"),
+            StageSpec(stage_id="equipment", label="Equipment"),
+            StageSpec(stage_id="calendar", label="Calendar", depends_on=["labs"]),
+        ],
+    )
+    return ExtensionRegistry.discover(
+        entry_points=[
+            _FakeEntryPoint(
+                name="study_planner",
+                provider=_BrowserFakeProvider(study_manifest),
+            ),
+            _FakeEntryPoint(
+                name="lab_planner",
+                provider=_BrowserFakeProvider(lab_manifest),
+                module="tests.e2e.fake_lab_extension_provider",
+            ),
+        ]
     )
 
 
 _SHOWCASE_PAUSE_SECONDS = 6.0
 _STATE_READING_PAUSE_SECONDS = 5.0
+_SHORT_SHOWCASE_PAUSE_SECONDS = 1.5
+_SHORT_STATE_READING_PAUSE_SECONDS = 1.3
+_SHORT_ERROR_PAUSE_SECONDS = 1.7
 
 
 def _commands_for_payloads(payloads: dict[str, dict]) -> list[str]:
@@ -258,12 +323,23 @@ def _assert_openai_results_rendered(chat_page) -> None:
     )
 
 
+def _draft_from_last_assistant_message(chat_page) -> dict[str, object]:
+    """Парсит JSON-представление draft из последнего assistant-сообщения."""
+    message = chat_page.last_chat_message(role="assistant")
+    prefix = "Текущий draft:\n"
+    if prefix not in message:
+        raise AssertionError("Последнее assistant-сообщение не содержит сериализованный draft.")
+    return json.loads(message.split(prefix, maxsplit=1)[1])
+
+
 @pytest.fixture()
 def require_openai_provider(request) -> None:
     """Пропускает real-provider сценарии без явного opt-in и API key."""
-    needs_openai = request.node.get_closest_marker(
-        "openai_smoke"
-    ) or request.node.get_closest_marker("openai_video_demo")
+    needs_openai = (
+        request.node.get_closest_marker("openai_smoke")
+        or request.node.get_closest_marker("openai_video_demo")
+        or request.node.get_closest_marker("openai_short_video_demo")
+    )
     if not needs_openai:
         return
     if os.getenv("E2E_OPENAI_SMOKE") != "1":
@@ -319,6 +395,45 @@ def test_default_browser_flow_still_runs_with_custom_extension_registry(chat_pag
     _assert_or_results_rendered(chat_page)
 
 
+@pytest.mark.parametrize(
+    "extension_registry",
+    [pytest.param(_registry_with_multiple_extensions(), id="multi-extension-registry")],
+    indirect=True,
+)
+def test_homepage_renders_with_multiple_extensions_in_registry(chat_page, web_app) -> None:
+    """Проверяет startup browser path c несколькими fake extensions в registry."""
+    assert web_app.state.extension_registry.aliases() == ["lab_planner", "study_planner"]
+    assert web_app.state.extension_registry.require("lab_planner").manifest.title == "Lab Planner"
+    assert (
+        web_app.state.extension_registry.require("study_planner").manifest.title == "Study Planner"
+    )
+    assert chat_page.session_id()
+    assert "load preset demo" in chat_page.last_chat_message(role="assistant")
+
+
+@pytest.mark.parametrize(
+    "extension_registry",
+    [pytest.param(_registry_with_multiple_extensions(), id="multi-extension-registry")],
+    indirect=True,
+)
+def test_default_browser_flow_still_runs_with_multiple_extensions_registry(
+    chat_page, web_app
+) -> None:
+    """Проверяет, что default HTMX OR-flow не ломается при registry из нескольких extensions."""
+    discovered = {
+        item.alias: item.manifest.topological_stage_ids()
+        for item in web_app.state.extension_registry.all()
+    }
+    assert set(discovered["lab_planner"][:2]) == {"labs", "equipment"}
+    assert discovered["lab_planner"][-1] == "calendar"
+    assert discovered["study_planner"] == ["courses", "time_budget", "priorities"]
+
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("run")
+
+    _assert_or_results_rendered(chat_page)
+
+
 def test_start_flow_shows_drafting_state_and_human_labels(chat_page) -> None:
     """Проверяет стартовый wizard flow после команды `start`."""
     chat_page.send_message("start")
@@ -363,6 +478,34 @@ def test_load_preset_demo_and_run_renders_results(chat_page) -> None:
     _assert_or_results_rendered(chat_page)
 
 
+def test_russian_command_aliases_cover_start_show_next_run_and_reset(chat_page) -> None:
+    """Проверяет ru-aliases команд интерактивного flow через live UI."""
+    chat_page.send_message("старт")
+    assert chat_page.text_of("current-stage-value") == "production"
+
+    chat_page.send_message("edit routing")
+    assert chat_page.text_of("current-stage-value") == "routing"
+
+    chat_page.send_message("далее")
+    assert chat_page.text_of("current-stage-value") == "production"
+
+    chat_page.send_message("загрузить демо")
+    assert chat_page.text_of("preset-value") == "demo"
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("показать")
+    draft = _draft_from_last_assistant_message(chat_page)
+    assert draft["preset_ref"] == "demo"
+
+    chat_page.send_message("запуск")
+    _assert_or_results_rendered(chat_page)
+
+    chat_page.send_message("сброс")
+    assert chat_page.has_testid("empty-results-card")
+    assert not chat_page.has_testid("production-result-card")
+    assert chat_page.text_of("ready-to-run-value") == "Нет"
+
+
 def test_manual_command_flow_reaches_successful_run(chat_page) -> None:
     """Проверяет командный flow через `json` и `set` до успешного результата."""
     chat_page.send_message("start")
@@ -378,6 +521,24 @@ def test_manual_command_flow_reaches_successful_run(chat_page) -> None:
     chat_page.send_message("run")
 
     _assert_or_results_rendered(chat_page)
+
+
+def test_rejecting_nl_patches_clears_pending_state_without_mutating_draft(chat_page) -> None:
+    """Проверяет явное отклонение `нет`: patch исчезает и draft не меняется."""
+    chat_page.send_message("load preset demo")
+    chat_page.send_message('production profits [41,31], products ["A","B"]')
+
+    assert chat_page.has_testid("pending-patches-card")
+
+    chat_page.send_message("нет")
+
+    assert not chat_page.has_testid("pending-patches-card")
+    assert "не применяю candidate patches" in chat_page.last_chat_message(role="assistant")
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("show input")
+    draft = _draft_from_last_assistant_message(chat_page)
+    assert draft["production"]["profits"] == [40.0, 30.0]
 
 
 def test_next_moves_to_first_missing_stage_and_updates_current_stage(chat_page) -> None:
@@ -411,6 +572,23 @@ def test_edit_stage_then_raw_json_shortcut_updates_current_stage_payload(chat_pa
     assert '"client_demand": [' in reply
 
 
+def test_post_run_input_change_invalidates_previous_result_until_explicit_rerun(chat_page) -> None:
+    """Проверяет сброс OR-результата после изменения валидного draft post-run."""
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("run")
+    assert chat_page.has_testid("production-result-card")
+
+    chat_page.send_message("set production.profits [44,34]")
+
+    assert chat_page.has_testid("empty-results-card")
+    assert not chat_page.has_testid("production-result-card")
+    assert chat_page.has_testid("pre-run-summary-card")
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("run")
+    _assert_or_results_rendered(chat_page)
+
+
 def test_partial_and_malformed_json_surface_validation_without_false_ready_state(chat_page) -> None:
     """Проверяет validation/error UX для partial и malformed JSON-команд."""
     chat_page.send_message("start")
@@ -427,6 +605,59 @@ def test_partial_and_malformed_json_surface_validation_without_false_ready_state
     assert chat_page.text_of("ready-to-run-value") == "Нет"
     assert chat_page.has_testid("validation-errors-card")
     assert not chat_page.has_testid("pre-run-summary-card")
+
+
+def test_run_is_blocked_for_multi_stage_incomplete_draft(chat_page) -> None:
+    """Проверяет блокировку `run`, когда заполнена только часть stage-ов."""
+    chat_page.send_message("start")
+    chat_page.send_message(PRODUCTION_JSON)
+    chat_page.send_message(ASSIGNMENT_JSON)
+
+    assert chat_page.text_of("ready-to-run-value") == "Нет"
+
+    chat_page.send_message("run")
+
+    assert not chat_page.has_testid("production-result-card")
+    assert chat_page.has_testid("missing-fields-card")
+    missing_chip_texts = [chip.text for chip in chat_page.find_all_by_testid("missing-field-chip")]
+    assert "2) Shipment" in missing_chip_texts
+    assert "4) Routing" in missing_chip_texts
+    assert "Нельзя запустить OR" in chat_page.last_chat_message(role="assistant")
+
+
+def test_stage_aliases_work_across_json_and_set_commands(chat_page) -> None:
+    """Проверяет short stage aliases в `json` и `set` командах."""
+    chat_page.send_message("start")
+    chat_page.send_message(_stage_json("prod", FAST_PAYLOADS["production"]))
+    chat_page.send_message(_stage_json("ship", FAST_PAYLOADS["shipment"]))
+    chat_page.send_message(_stage_json("assign", FAST_PAYLOADS["assignment"]))
+    chat_page.send_message(_stage_json("route", FAST_PAYLOADS["routing"]))
+    chat_page.send_message("set prod.profits [41,31]")
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("show input")
+    draft = _draft_from_last_assistant_message(chat_page)
+    assert draft["production"]["profits"] == [41, 31]
+    assert draft["routing"]["depot_index"] == 0
+
+
+def test_russian_stage_aliases_and_assignment_raw_json_shortcut_work(chat_page) -> None:
+    """Проверяет ru stage aliases для `json`/`set`/`edit` и raw JSON для assignment."""
+    chat_page.send_message("старт")
+    chat_page.send_message(_stage_json("производство", FAST_PAYLOADS["production"]))
+    chat_page.send_message("edit назначение")
+    chat_page.send_message(json.dumps(FAST_PAYLOADS["assignment"], ensure_ascii=False))
+    chat_page.send_message("set производство.profits [41,31]")
+
+    assert chat_page.text_of("collection-mode") == "wizard"
+    assert chat_page.text_of("stage-status-value-production") == "готов"
+    assert chat_page.text_of("stage-status-value-assignment") == "готов"
+
+    chat_page.send_message("show input")
+    draft = _draft_from_last_assistant_message(chat_page)
+    assert draft["production"]["profits"] == [41, 31]
+    assert draft["assignment"]["resources"] == ["truck_1", "truck_2", "truck_3"]
 
 
 def test_nl_flow_requires_confirmation_and_then_runs(chat_page) -> None:
@@ -512,6 +743,241 @@ def test_openai_browser_smoke(chat_page, require_openai_provider) -> None:
     chat_page.send_message("run")
 
     _assert_openai_results_rendered(chat_page)
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_preset_overview(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: быстрый preset overview через OpenAI."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_russian_aliases(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: русские alias-команды в живом чате."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "загрузить демо"),
+            ScreencastStep(
+                "type_message", "показать", after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS
+            ),
+            ScreencastStep("type_message", "запуск"),
+        ],
+    )
+
+    assert any("Текущий draft:" in message for message in chat_page.chat_messages(role="assistant"))
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_wizard_and_raw_json(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: wizard + edit stage + raw JSON shortcut."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "start"),
+            ScreencastStep("type_message", "edit shipment"),
+            ScreencastStep(
+                "chunked_message",
+                SHIPMENT_SHORTCUT_JSON,
+                after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS,
+            ),
+            ScreencastStep("type_message", "show input"),
+        ],
+    )
+
+    assert chat_page.text_of("stage-status-value-shipment") == "готов"
+    assert '"shipment": {' in chat_page.last_chat_message(role="assistant")
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_manual_json_run(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: компактный deterministic DSL flow до `run`."""
+    del require_openai_provider
+
+    steps = [
+        ScreencastStep("select_model", "openai_default"),
+        ScreencastStep("type_message", "start"),
+    ]
+    steps.extend(
+        ScreencastStep("chunked_message", command)
+        for command in _commands_for_payloads(FAST_PAYLOADS)
+    )
+    steps.append(ScreencastStep("type_message", "run"))
+    _run_screencast_script(chat_page, steps)
+
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_nl_confirm(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: NL patch -> подтверждение -> успешный run."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep(
+                "chunked_message",
+                'production profits [41,31], products ["A","B"]',
+                after_pause_seconds=_SHORT_STATE_READING_PAUSE_SECONDS,
+            ),
+        ],
+    )
+
+    assert chat_page.has_testid("pending-patches-card")
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("type_message", "да"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_nl_reject(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: отклонение candidate patches через `нет`."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep(
+                "chunked_message",
+                'production profits [41,31], products ["A","B"]',
+                after_pause_seconds=_SHORT_STATE_READING_PAUSE_SECONDS,
+            ),
+        ],
+    )
+
+    assert chat_page.has_testid("pending-patches-card")
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("type_message", "нет"),
+            ScreencastStep(
+                "type_message", "show input", after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS
+            ),
+        ],
+    )
+
+    assert not chat_page.has_testid("pending-patches-card")
+    assert '"profits": [' in chat_page.last_chat_message(role="assistant")
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_validation_recovery(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: validation error и восстановление валидного stage."""
+    del require_openai_provider
+
+    partial_production = _stage_json(
+        "production",
+        {"products": FAST_PAYLOADS["production"]["products"]},
+    )
+    malformed_production = 'json production {"products":["A","B"]'
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "start"),
+            ScreencastStep(
+                "chunked_message",
+                partial_production,
+                after_pause_seconds=_SHORT_ERROR_PAUSE_SECONDS,
+            ),
+            ScreencastStep(
+                "chunked_message",
+                malformed_production,
+                after_pause_seconds=_SHORT_ERROR_PAUSE_SECONDS,
+            ),
+            ScreencastStep(
+                "chunked_message",
+                PRODUCTION_JSON,
+                after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS,
+            ),
+        ],
+    )
+
+    assert chat_page.text_of("stage-status-value-production") == "готов"
+    assert chat_page.has_testid("validation-errors-card")
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.openai_short_video_demo
+def test_openai_short_video_ambiguity_resolution(chat_page, require_openai_provider) -> None:
+    """Короткий ролик: ambiguity -> уточнение -> подтверждение -> run."""
+    del require_openai_provider
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "openai_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep(
+                "chunked_message",
+                "для production и shipment задай cost_matrix [[5,6,8],[4,5,3]]",
+                after_pause_seconds=_SHORT_STATE_READING_PAUSE_SECONDS,
+            ),
+        ],
+    )
+
+    assert chat_page.has_testid("uncertainties-card")
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep(
+                "chunked_message",
+                "для shipment cost_matrix [[5,6,8],[4,5,3]]",
+                after_pause_seconds=_SHORT_STATE_READING_PAUSE_SECONDS,
+            ),
+        ],
+    )
+
+    assert chat_page.has_testid("pending-patches-card")
+
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("type_message", "да"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_openai_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
 
 
 @pytest.mark.openai_video_demo
