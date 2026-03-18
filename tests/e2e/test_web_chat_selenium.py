@@ -9,6 +9,7 @@ from typing import Literal
 
 import httpx
 import pytest
+from extension_api import ExtensionManifest, ExtensionRegistry, ExtensionResultSection, StageSpec
 
 pytestmark = pytest.mark.e2e
 
@@ -133,6 +134,79 @@ class ScreencastStep:
     after_pause_seconds: float | None = None
 
 
+@dataclass(frozen=True)
+class _FakeEntryPoint:
+    """Минимальный entry point stand-in для browser tests с custom registry."""
+
+    name: str
+    provider: object
+    group: str = "edu_or_agent.extensions"
+    module: str = "tests.e2e.fake_extension_provider"
+
+    def load(self) -> object:
+        return self.provider
+
+
+class _BrowserFakeRuntime:
+    """Минимальный runtime для startup-discovery smoke в Selenium."""
+
+    manifest: ExtensionManifest
+
+    def __init__(self, manifest: ExtensionManifest) -> None:
+        self.manifest = manifest
+
+    def validate_draft(self, draft: dict[str, object]) -> dict[str, list[str]]:
+        return {}
+
+    def build_runtime_input(self, draft: dict[str, object]) -> object:
+        return draft
+
+    def run(self, runtime_input: object) -> object:
+        return runtime_input
+
+    def fallback_explain(self, result: object) -> str:
+        return "fallback"
+
+    def build_llm_explain_prompt(self, result: object) -> str:
+        return "prompt"
+
+    def build_result_sections(self, result: object) -> list[ExtensionResultSection]:
+        return []
+
+    def build_teaching_hints(self, draft: dict[str, object]) -> list[dict[str, object]]:
+        return []
+
+    def build_nl_semantics(self) -> dict[str, object]:
+        return {}
+
+
+class _BrowserFakeProvider:
+    """Фейковый provider для browser smoke с непустым registry."""
+
+    def get_manifest(self) -> ExtensionManifest:
+        return ExtensionManifest(
+            alias="study_planner",
+            title="Study Planner",
+            description="Sample extension manifest for Selenium startup coverage",
+            version="0.1.0",
+            stage_graph=[
+                StageSpec(stage_id="courses", label="Courses"),
+                StageSpec(stage_id="time_budget", label="Time Budget"),
+                StageSpec(stage_id="priorities", label="Priorities", depends_on=["courses"]),
+            ],
+        )
+
+    def create_runtime(self) -> _BrowserFakeRuntime:
+        return _BrowserFakeRuntime(self.get_manifest())
+
+
+def _registry_with_study_planner() -> ExtensionRegistry:
+    """Строит непустой registry для browser tests текущего foundation-slice."""
+    return ExtensionRegistry.discover(
+        entry_points=[_FakeEntryPoint(name="study_planner", provider=_BrowserFakeProvider)]
+    )
+
+
 _SHOWCASE_PAUSE_SECONDS = 6.0
 _STATE_READING_PAUSE_SECONDS = 5.0
 
@@ -210,6 +284,39 @@ def test_homepage_renders_workspace_and_local_htmx(chat_page, live_server: str) 
     asset_response = httpx.get(f"{live_server}/static/vendor/htmx-2.0.4.min.js", timeout=2.0)
     assert asset_response.status_code == 200
     assert "htmx" in asset_response.text
+
+
+@pytest.mark.parametrize(
+    "extension_registry",
+    [pytest.param(_registry_with_study_planner(), id="study-planner-registry")],
+    indirect=True,
+)
+def test_homepage_renders_with_non_empty_extension_registry(chat_page, web_app) -> None:
+    """Проверяет browser startup-path с непустым custom extension registry."""
+    assert web_app.state.extension_registry.aliases() == ["study_planner"]
+    assert chat_page.session_id()
+    assert chat_page.text_of("session-id-value") == chat_page.session_id()
+    assert "load preset demo" in chat_page.last_chat_message(role="assistant")
+
+
+@pytest.mark.parametrize(
+    "extension_registry",
+    [pytest.param(_registry_with_study_planner(), id="study-planner-registry")],
+    indirect=True,
+)
+def test_default_browser_flow_still_runs_with_custom_extension_registry(chat_page, web_app) -> None:
+    """Проверяет, что current HTMX OR-flow не ломается при наличии custom registry."""
+    discovered = web_app.state.extension_registry.require("study_planner")
+    assert discovered.manifest.topological_stage_ids() == [
+        "courses",
+        "time_budget",
+        "priorities",
+    ]
+
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("run")
+
+    _assert_or_results_rendered(chat_page)
 
 
 def test_start_flow_shows_drafting_state_and_human_labels(chat_page) -> None:

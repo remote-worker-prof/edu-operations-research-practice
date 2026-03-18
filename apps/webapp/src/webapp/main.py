@@ -252,9 +252,20 @@ def create_app(
     - Selenium/live-server тесты могут поднимать изолированное приложение
       с отдельным in-memory состоянием и без общих module-global side effects.
     """
+    if (
+        service is not None
+        and extension_registry is not None
+        and service.extension_registry is not extension_registry
+    ):
+        raise ValueError(
+            "create_app received both `service` and `extension_registry`, but they do not "
+            "refer to the same registry object. Pass only `service` or construct it with the "
+            "desired registry beforehand."
+        )
+
     app = FastAPI(title="OR AI Agent Demo", version="0.1.0")
-    resolved_registry = extension_registry or getattr(service, "extension_registry", None)
-    app.state.service = service or AgentService(extension_registry=resolved_registry)
+    resolved_service = service or AgentService(extension_registry=extension_registry)
+    app.state.service = resolved_service
     app.state.extension_registry = app.state.service.extension_registry
     app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
     app.include_router(router)

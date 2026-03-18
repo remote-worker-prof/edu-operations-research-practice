@@ -17,6 +17,7 @@ import httpx
 import pytest
 import uvicorn
 from agent_core.service import AgentService
+from extension_api import ExtensionRegistry
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -483,10 +484,16 @@ def e2e_artifacts_dir() -> Path:
 
 
 @pytest.fixture()
-def web_app(scenario_path: Path):
+def extension_registry(request) -> ExtensionRegistry | None:
+    """Позволяет отдельным E2E-тестам инжектировать custom registry через indirect param."""
+    return getattr(request, "param", None)
+
+
+@pytest.fixture()
+def web_app(scenario_path: Path, extension_registry: ExtensionRegistry | None):
     """Поднимает изолированный `FastAPI` app c отдельным `AgentService`."""
-    service = AgentService(scenario_path=scenario_path)
-    return create_app(service=service)
+    service = AgentService(scenario_path=scenario_path, extension_registry=extension_registry)
+    return create_app(service=service, extension_registry=extension_registry)
 
 
 @pytest.fixture()
