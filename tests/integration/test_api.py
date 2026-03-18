@@ -45,6 +45,8 @@ def test_api_chat_turn_success(monkeypatch) -> None:
     assert response.status_code == 200
 
     payload = response.json()
+    assert payload["extension_state"]["alias"] == "default_or"
+    assert payload["session"]["extension_state"]["alias"] == "default_or"
     assert payload["session"]["or_result"] is not None
 
 
@@ -593,6 +595,8 @@ def test_api_can_start_new_session_with_sample_extension() -> None:
     payload = response.json()
     session_id = payload["session"]["session_id"]
     assert payload["session"]["extension_alias"] == "study_planner"
+    assert payload["session"]["extension_state"]["alias"] == "study_planner"
+    assert payload["extension_state"]["alias"] == "study_planner"
     assert payload["session"]["collection_state"]["current_stage"] == "courses"
 
     commands = [
@@ -616,6 +620,12 @@ def test_api_can_start_new_session_with_sample_extension() -> None:
         payload = response.json()
 
     assert payload["session"]["or_result"] is None
+    assert payload["session"]["extension_state"]["draft"]["courses"]["names"] == [
+        "Math",
+        "ML",
+        "Databases",
+    ]
+    assert payload["extension_state"]["result"]["total_available_hours"] == 48.0
     assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
     assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
     assert payload["session"]["extension_result_sections"][2]["blocks"][0]["rows"][0][0] == "Math"

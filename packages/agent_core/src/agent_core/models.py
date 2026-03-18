@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from extension_api import ExtensionResultSection
 from or_core.models import ORResult, ScenarioDraft
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from agent_core.config import DEFAULT_MODEL_ALIAS
 from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
@@ -114,6 +114,15 @@ class CommandResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ExtensionStateSnapshot(BaseModel):
+    """Generic extension-aware draft/result slot for session and turn contracts."""
+
+    alias: str
+    draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    result_sections: list[ExtensionResultSection] = Field(default_factory=list)
+
+
 class AgentSession(BaseModel):
     """Полное состояние пользовательской сессии диалога.
 
@@ -146,6 +155,17 @@ class AgentSession(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     model_alias: str = DEFAULT_MODEL_ALIAS
 
+    @computed_field(return_type=ExtensionStateSnapshot)
+    @property
+    def extension_state(self) -> ExtensionStateSnapshot:
+        """Returns a generic snapshot for extension-aware clients and transports."""
+        return ExtensionStateSnapshot(
+            alias=self.extension_alias,
+            draft=self.extension_draft,
+            result=self.extension_result,
+            result_sections=self.extension_result_sections,
+        )
+
 
 class ChatTurnRequest(BaseModel):
     """Входной payload одного хода диалога (HTML и JSON endpoints)."""
@@ -164,6 +184,12 @@ class TurnResult(BaseModel):
 
     session: AgentSession
     assistant_message: str
+
+    @computed_field(return_type=ExtensionStateSnapshot)
+    @property
+    def extension_state(self) -> ExtensionStateSnapshot:
+        """Mirrors the generic extension snapshot at the turn envelope level."""
+        return self.session.extension_state
 
 
 class LLMResponse(BaseModel):

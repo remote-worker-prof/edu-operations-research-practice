@@ -9,7 +9,7 @@ from agent_core.extension_flow import (
     reset_session_for_extension,
     session_is_empty,
 )
-from agent_core.models import AgentSession
+from agent_core.models import AgentSession, TurnResult
 from extension_api import DiscoveredExtension, ExtensionRegistry
 from sample_study_planner_extension import StudyPlannerExtensionProvider
 
@@ -118,3 +118,22 @@ def test_session_is_empty_after_reset_and_switch_ready_state() -> None:
     assert session.extension_alias == "study_planner"
     assert session_is_empty(session)
     assert session.collection_state.current_stage == "courses"
+
+
+def test_agent_session_and_turn_result_expose_generic_extension_state_snapshot() -> None:
+    """Проверяет generic extension snapshot в session и turn transport models."""
+    session = AgentSession(
+        extension_alias="study_planner",
+        extension_draft={"courses": {"names": ["Math"], "hours_required": [30]}},
+        extension_result={"total_available_hours": 48.0},
+    )
+
+    assert session.extension_state.alias == "study_planner"
+    assert session.extension_state.draft["courses"]["names"] == ["Math"]
+    assert session.extension_state.result == {"total_available_hours": 48.0}
+
+    turn = TurnResult(session=session, assistant_message="ok")
+
+    assert turn.extension_state.alias == "study_planner"
+    assert turn.extension_state.draft == session.extension_draft
+    assert turn.model_dump(mode="json")["extension_state"]["alias"] == "study_planner"
