@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from extension_api import ExtensionRegistry
 from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 from agent_core.config import DEFAULT_MODEL_ALIAS, default_scenario_path
 from agent_core.dialog_graph import build_dialog_graph
+from agent_core.extensions import load_extension_registry
 from agent_core.llm import LLMClient
 from agent_core.models import AgentSession, ChatTurnRequest, TurnResult
 from agent_core.session_store import InMemorySessionStore
@@ -37,6 +39,7 @@ class AgentService:
         scenario_path: Path | None = None,
         session_store: InMemorySessionStore | None = None,
         llm_client: LLMClient | None = None,
+        extension_registry: ExtensionRegistry | None = None,
     ) -> None:
         """Инициализирует все зависимости сервиса.
 
@@ -47,6 +50,7 @@ class AgentService:
         """
         self._store = session_store or InMemorySessionStore()
         self._llm_client = llm_client or LLMClient()
+        self._extension_registry = extension_registry or load_extension_registry()
         preset_path = scenario_path or default_scenario_path()
         self._scenario_assembler = ScenarioAssembler()
         self._preset_loader = ScenarioPresetLoader(preset_path)
@@ -62,6 +66,11 @@ class AgentService:
     def store(self) -> InMemorySessionStore:
         """Возвращает используемое хранилище сессий (для тестов и интеграций)."""
         return self._store
+
+    @property
+    def extension_registry(self) -> ExtensionRegistry:
+        """Возвращает startup-регистр обнаруженных extension-пакетов."""
+        return self._extension_registry
 
     def create_session(self, model_alias: str = DEFAULT_MODEL_ALIAS) -> AgentSession:
         """Создаёт новую пользовательскую сессию и сохраняет её в store."""

@@ -22,6 +22,7 @@ from pathlib import Path
 from agent_core.config import DEFAULT_MODEL_ALIAS, model_aliases, model_options
 from agent_core.models import ChatTurnRequest
 from agent_core.service import AgentService
+from extension_api import ExtensionRegistry
 from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -234,7 +235,11 @@ def api_get_session(session_id: str, request: Request) -> dict:
     return session.model_dump(mode="json")
 
 
-def create_app(*, service: AgentService | None = None) -> FastAPI:
+def create_app(
+    *,
+    service: AgentService | None = None,
+    extension_registry: ExtensionRegistry | None = None,
+) -> FastAPI:
     """Создаёт и настраивает `FastAPI`-приложение для runtime и тестов.
 
     Что делает:
@@ -248,7 +253,9 @@ def create_app(*, service: AgentService | None = None) -> FastAPI:
       с отдельным in-memory состоянием и без общих module-global side effects.
     """
     app = FastAPI(title="OR AI Agent Demo", version="0.1.0")
-    app.state.service = service or AgentService()
+    resolved_registry = extension_registry or getattr(service, "extension_registry", None)
+    app.state.service = service or AgentService(extension_registry=resolved_registry)
+    app.state.extension_registry = app.state.service.extension_registry
     app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
     app.include_router(router)
     return app

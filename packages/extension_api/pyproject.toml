@@ -1,0 +1,15 @@
+[project]
+name = "extension-api"
+version = "0.1.0"
+description = "Public extension SDK for educational AI agent extensions"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "pydantic>=2.11.2",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/extension_api"]

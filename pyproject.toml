@@ -1,6 +1,7 @@
 [tool.uv.workspace]
 members = [
   "apps/webapp",
+  "packages/extension_api",
   "packages/agent_core",
   "packages/or_core",
 ]
@@ -19,6 +20,7 @@ addopts = "-q"
 testpaths = ["tests"]
 pythonpath = [
   "apps/webapp/src",
+  "packages/extension_api/src",
   "packages/agent_core/src",
   "packages/or_core/src",
 ]

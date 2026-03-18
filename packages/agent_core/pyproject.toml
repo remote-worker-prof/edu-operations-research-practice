@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Dialog orchestration and LLM integration for OR educational agents"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "extension-api",
   "pydantic>=2.11.2",
   "langgraph>=0.2.53",
   "litellm>=1.63.7",
@@ -11,6 +12,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+extension-api = { workspace = true }
 or-core = { workspace = true }
 
 [build-system]
