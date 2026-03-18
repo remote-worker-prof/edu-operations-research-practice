@@ -113,6 +113,7 @@
         display: flex;
         gap: 8px;
         align-items: center;
+        flex-wrap: wrap;
       }
       select,
       input,
@@ -145,6 +146,29 @@
       .error {
         color: var(--error);
         font-size: 0.9rem;
+      }
+      .result-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 0.92rem;
+      }
+      .result-table th,
+      .result-table td {
+        padding: 8px;
+        border-bottom: 1px solid #dbe8ed;
+        text-align: left;
+      }
+      .result-list {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+      pre {
+        margin: 8px 0 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: #f0f6f8;
+        overflow-x: auto;
       }
       @media (max-width: 920px) {
         .layout {

@@ -192,7 +192,13 @@ def test_index_model_aliases_match_config() -> None:
     assert page.status_code == 200
 
     # Assert
-    options = re.findall(r'<option value="([^"]+)"', page.text)
+    select_match = re.search(
+        r'<select id="model-alias-select"[^>]*>(.*?)</select>',
+        page.text,
+        flags=re.DOTALL,
+    )
+    assert select_match is not None
+    options = re.findall(r'<option value="([^"]+)"', select_match.group(1))
     assert options == model_aliases()
 
 
@@ -571,3 +577,128 @@ def test_api_chat_turn_or_pipeline_error(monkeypatch) -> None:
     assert payload["session"]["errors"]
     assert "forced OR failure for test" in " ".join(payload["session"]["errors"])
     assert "Не удалось выполнить шаг" in payload["assistant_message"]
+
+
+def test_api_can_start_new_session_with_sample_extension() -> None:
+    """Проверяет JSON API happy-path для `study_planner` без OR-подграфа."""
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    session_id = payload["session"]["session_id"]
+    assert payload["session"]["extension_alias"] == "study_planner"
+    assert payload["session"]["collection_state"]["current_stage"] == "courses"
+
+    commands = [
+        ('json courses {"names":["Math","ML","Databases"],"hours_required":[30,24,18]}'),
+        'json time_budget {"weekly_hours":12,"weeks":4}',
+        'json priorities {"weights":[0.5,0.3,0.2]}',
+        "run",
+    ]
+
+    for command in commands:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "local_default",
+                "extension_alias": "study_planner",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+    assert payload["session"]["or_result"] is None
+    assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
+    assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
+    assert payload["session"]["extension_result_sections"][2]["blocks"][0]["rows"][0][0] == "Math"
+
+
+def test_api_rejects_extension_switch_in_nonempty_session_until_reset() -> None:
+    """Проверяет, что extension нельзя поменять в непустой сессии без `reset`."""
+    preset_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    blocked = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert blocked.status_code == 200
+    payload = blocked.json()
+    assert payload["session"]["extension_alias"] == "default_or"
+    assert payload["session"]["scenario_draft"]["preset_ref"] == "demo"
+    assert "Нельзя сменить extension" in payload["assistant_message"]
+
+
+def test_api_reset_then_switch_extension_succeeds() -> None:
+    """Проверяет двухшаговый policy-flow: `reset`, затем успешный switch extension."""
+    preset_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    reset_response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "message": "reset",
+        },
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["session"]["extension_alias"] == "default_or"
+
+    switch_response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert switch_response.status_code == 200
+    payload = switch_response.json()
+    assert payload["session"]["extension_alias"] == "study_planner"
+    assert payload["session"]["collection_state"]["current_stage"] == "courses"
+    assert "Заполните stage Курсы" in payload["assistant_message"]
+
+
+def test_api_unknown_extension_alias_returns_human_error_without_500() -> None:
+    """Проверяет защиту от неизвестного `extension_alias`."""
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "unknown_extension",
+            "message": "start",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session"]["extension_alias"] == "default_or"
+    assert "не найдено" in payload["assistant_message"]

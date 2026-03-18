@@ -9,15 +9,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from extension_api import ExtensionRegistry
+from extension_api import ExtensionNotFoundError, ExtensionRegistry
 from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 from agent_core.config import DEFAULT_MODEL_ALIAS, default_scenario_path
+from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
 from agent_core.dialog_graph import build_dialog_graph
-from agent_core.extensions import load_extension_registry
+from agent_core.extension_flow import (
+    handle_extension_turn,
+    is_default_or_extension,
+    manifest_for_alias,
+    reset_session_for_extension,
+    session_is_empty,
+)
+from agent_core.extensions import compose_extension_registry, load_extension_registry
 from agent_core.llm import LLMClient
-from agent_core.models import AgentSession, ChatTurnRequest, TurnResult
+from agent_core.models import AgentSession, ChatMessage, ChatTurnRequest, TurnResult
 from agent_core.session_store import InMemorySessionStore
 
 
@@ -50,7 +58,11 @@ class AgentService:
         """
         self._store = session_store or InMemorySessionStore()
         self._llm_client = llm_client or LLMClient()
-        self._extension_registry = extension_registry or load_extension_registry()
+        self._extension_registry = (
+            compose_extension_registry(extension_registry)
+            if extension_registry is not None
+            else load_extension_registry()
+        )
         preset_path = scenario_path or default_scenario_path()
         self._scenario_assembler = ScenarioAssembler()
         self._preset_loader = ScenarioPresetLoader(preset_path)
@@ -61,6 +73,20 @@ class AgentService:
             or_pipeline=self._or_pipeline,
             llm_client=self._llm_client,
         )
+
+    @staticmethod
+    def _append_assistant_error(
+        *,
+        session: AgentSession,
+        user_message: str,
+        assistant_message: str,
+    ) -> TurnResult:
+        """Appends a user turn plus one assistant-side policy/error reply."""
+        updated_session = session.model_copy(deep=True)
+        updated_session.errors = []
+        updated_session.messages.append(ChatMessage(role="user", content=user_message.strip()))
+        updated_session.messages.append(ChatMessage(role="assistant", content=assistant_message))
+        return TurnResult(session=updated_session, assistant_message=assistant_message)
 
     @property
     def store(self) -> InMemorySessionStore:
@@ -97,6 +123,47 @@ class AgentService:
         """
         session = self._store.get_or_create(request.session_id)
         session.model_alias = request.model_alias
+        requested_alias = (
+            request.extension_alias or session.extension_alias or DEFAULT_OR_EXTENSION_ALIAS
+        )
+
+        if requested_alias != session.extension_alias:
+            try:
+                target_manifest = manifest_for_alias(self._extension_registry, requested_alias)
+            except ExtensionNotFoundError:
+                rejected = self._append_assistant_error(
+                    session=session,
+                    user_message=request.message,
+                    assistant_message=(
+                        f"Extension `{requested_alias}` не найдено. "
+                        f"Текущий extension остаётся `{session.extension_alias}`."
+                    ),
+                )
+                self._store.save(rejected.session)
+                return rejected
+
+            if not session_is_empty(session):
+                rejected = self._append_assistant_error(
+                    session=session,
+                    user_message=request.message,
+                    assistant_message=(
+                        "Нельзя сменить extension в непустой сессии. "
+                        "Сначала отправьте `reset`, затем выберите новый extension."
+                    ),
+                )
+                self._store.save(rejected.session)
+                return rejected
+
+            reset_session_for_extension(session, alias=requested_alias, manifest=target_manifest)
+
+        if not is_default_or_extension(session.extension_alias):
+            updated_session, assistant_message = handle_extension_turn(
+                session=session,
+                user_message=request.message,
+                registry=self._extension_registry,
+            )
+            self._store.save(updated_session)
+            return TurnResult(session=updated_session, assistant_message=assistant_message)
 
         output_state = self._dialog_graph.invoke(
             {

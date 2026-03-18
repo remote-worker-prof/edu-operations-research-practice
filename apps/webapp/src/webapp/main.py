@@ -20,6 +20,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_core.config import DEFAULT_MODEL_ALIAS, model_aliases, model_options
+from agent_core.extension_flow import (
+    manifest_for_alias,
+    stage_label_map_for_manifest,
+    stage_order_for_manifest,
+)
 from agent_core.models import ChatTurnRequest
 from agent_core.service import AgentService
 from extension_api import ExtensionRegistry
@@ -32,17 +37,30 @@ APP_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 router = APIRouter()
 
-MISSING_FIELD_LABELS = {
-    "production": "1) Production",
-    "shipment": "2) Shipment",
-    "assignment": "3) Assignment",
-    "routing": "4) Routing",
-}
-
 
 def _get_service(request: Request) -> AgentService:
     """Возвращает `AgentService`, прикреплённый к текущему приложению."""
     return request.app.state.service
+
+
+def _manifest_context(
+    request: Request, session
+) -> tuple[dict[str, str], list[dict[str, object]], object]:
+    """Builds manifest-driven stage labels and progress rows for the current session."""
+    registry = request.app.state.extension_registry
+    manifest = manifest_for_alias(registry, session.extension_alias)
+    label_map = stage_label_map_for_manifest(manifest)
+    stage_rows = []
+    for stage_id in stage_order_for_manifest(manifest):
+        errors = session.validation_errors_by_stage.get(stage_id, [])
+        stage_rows.append(
+            {
+                "stage_id": stage_id,
+                "label": label_map.get(stage_id, stage_id),
+                "ready": not errors,
+            }
+        )
+    return label_map, stage_rows, manifest
 
 
 def _render_context(*, request: Request, session) -> dict:
@@ -67,12 +85,24 @@ def _render_context(*, request: Request, session) -> dict:
     Пример:
     - используется внутри `index()` и `chat_turn()` перед `TemplateResponse`.
     """
+    missing_field_labels, stage_status_rows, manifest = _manifest_context(request, session)
+    extension_options = [
+        {
+            "alias": item.alias,
+            "title": item.manifest.title,
+            "description": item.manifest.description,
+        }
+        for item in request.app.state.extension_registry.all()
+    ]
     return {
         "request": request,
         "session": session,
         "model_aliases": model_aliases(),
         "model_options": model_options(),
-        "missing_field_labels": MISSING_FIELD_LABELS,
+        "missing_field_labels": missing_field_labels,
+        "stage_status_rows": stage_status_rows,
+        "current_extension_manifest": manifest,
+        "extension_options": extension_options,
     }
 
 
@@ -136,6 +166,7 @@ def chat_turn(
     request: Request,
     session_id: str = Form(...),
     model_alias: str = Form(DEFAULT_MODEL_ALIAS),
+    extension_alias: str | None = Form(None),
     message: str = Form(...),
 ) -> HTMLResponse:
     """Обрабатывает один ход диалога в HTMX-режиме и возвращает partial HTML.
@@ -168,6 +199,7 @@ def chat_turn(
         ChatTurnRequest(
             session_id=session_id,
             model_alias=model_alias,
+            extension_alias=extension_alias,
             message=message,
         )
     )
@@ -252,16 +284,30 @@ def create_app(
     - Selenium/live-server тесты могут поднимать изолированное приложение
       с отдельным in-memory состоянием и без общих module-global side effects.
     """
+    if service is not None and extension_registry is not None:
+        missing_aliases = [
+            alias
+            for alias in extension_registry.aliases()
+            if alias not in service.extension_registry
+        ]
+        if missing_aliases:
+            raise ValueError(
+                "create_app received both `service` and `extension_registry`, but the service "
+                "registry does not include these aliases: " + ", ".join(sorted(missing_aliases))
+            )
     if (
+        service is not None
+        and extension_registry is not None
+        and service.extension_registry is extension_registry
+    ):
+        pass
+    elif (
         service is not None
         and extension_registry is not None
         and service.extension_registry is not extension_registry
     ):
-        raise ValueError(
-            "create_app received both `service` and `extension_registry`, but they do not "
-            "refer to the same registry object. Pass only `service` or construct it with the "
-            "desired registry beforehand."
-        )
+        # Accept composition where the service registry additionally includes built-ins.
+        extension_registry = service.extension_registry
 
     app = FastAPI(title="OR AI Agent Demo", version="0.1.0")
     resolved_service = service or AgentService(extension_registry=extension_registry)

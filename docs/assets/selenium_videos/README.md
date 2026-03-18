@@ -4,7 +4,9 @@
 Chromium для учебной демонстрации чата.
 
 Длинный lecture-friendly набор живёт прямо в этом каталоге. Отдельный компактный
-short-pack лежит в [short/README.md](short/README.md).
+short-pack лежит в [short/README.md](short/README.md). Отдельный deterministic
+mini-pack по extensions лежит в
+[extensions/README.md](extensions/README.md).
 
 ## Сценарии
 
@@ -35,7 +37,8 @@ short-pack лежит в [short/README.md](short/README.md).
 Исходные временные артефакты Selenium по-прежнему появляются в
 `.pytest_artifacts/e2e/videos/`, а этот каталог хранит уже отобранные версии с
 постоянными именами для репозитория. Короткие polished-ролики лежат в
-`docs/assets/selenium_videos/short/`.
+`docs/assets/selenium_videos/short/`, а deterministic extension pack —
+в `docs/assets/selenium_videos/extensions/`.
 
 Если хочется не просто посмотреть видео, а пошагово разобрать задачу, математику,
 ввод в чат и ожидаемые числа, начните с

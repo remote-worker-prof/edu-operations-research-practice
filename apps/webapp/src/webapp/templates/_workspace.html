@@ -2,22 +2,32 @@
   <section class="panel" data-testid="status-panel">
     <h2>Параметры и результаты</h2>
     <div class="kv" data-testid="session-id-row"><span>Сессия</span><strong data-testid="session-id-value">{{ session.session_id }}</strong></div>
+    <div class="kv" data-testid="current-extension-row"><span>Extension</span><strong data-testid="current-extension-value">{{ current_extension_manifest.title }} ({{ session.extension_alias }})</strong></div>
     <div class="kv" data-testid="mode-row"><span>Режим ввода</span><strong data-testid="collection-mode">{{ session.collection_state.mode }}</strong></div>
     <div class="kv" data-testid="phase-row"><span>Фаза диалога</span><strong data-testid="collection-phase">{{ session.collection_state.phase }}</strong></div>
-    <div class="kv" data-testid="current-stage-row"><span>Текущий stage</span><strong data-testid="current-stage-value">{{ session.collection_state.current_stage or "-" }}</strong></div>
+    <div class="kv" data-testid="current-stage-row"><span>Текущий stage</span><strong data-testid="current-stage-value">{{ missing_field_labels.get(session.collection_state.current_stage, session.collection_state.current_stage or "-") }}</strong></div>
     <div class="kv" data-testid="ready-to-run-row"><span>Готово к run</span><strong data-testid="ready-to-run-value">{{ "Да" if session.collection_state.ready_to_run else "Нет" }}</strong></div>
-    {% if session.scenario_draft.preset_ref %}
+    {% if session.extension_alias == "default_or" and session.scenario_draft.preset_ref %}
       <div class="kv" data-testid="preset-row"><span>Preset</span><strong data-testid="preset-value">{{ session.scenario_draft.preset_ref }}</strong></div>
     {% endif %}
+
+    <div class="card" data-testid="available-extensions-card">
+      <strong>Доступные extensions</strong>
+      <div class="stack">
+        {% for extension in extension_options %}
+          <span class="chip" data-testid="available-extension-chip">{{ extension.title }} ({{ extension.alias }})</span>
+        {% endfor %}
+      </div>
+    </div>
 
     <div class="card" data-testid="stage-progress-card">
       <strong>Прогресс stage-by-stage</strong>
       <div class="stack">
-        {% for stage in ["production", "shipment", "assignment", "routing"] %}
-          {% set errors = session.validation_errors_by_stage.get(stage, []) %}
-          <div class="kv" data-testid="stage-status-{{ stage }}">
-            <span>{{ missing_field_labels.get(stage, stage) }}</span>
-            <strong data-testid="stage-status-value-{{ stage }}">{{ "готов" if not errors else "не готов" }}</strong>
+        {% for row in stage_status_rows %}
+          {% set errors = session.validation_errors_by_stage.get(row.stage_id, []) %}
+          <div class="kv" data-testid="stage-status-{{ row.stage_id }}">
+            <span>{{ row.label }}</span>
+            <strong data-testid="stage-status-value-{{ row.stage_id }}">{{ "готов" if not errors else "не готов" }}</strong>
           </div>
         {% endfor %}
       </div>
@@ -100,7 +110,7 @@
       </div>
     {% endif %}
 
-    {% if session.or_result %}
+    {% if session.extension_alias == "default_or" and session.or_result %}
       <div class="card" data-testid="production-result-card">
         <strong>1) Производство</strong>
         <div>Объёмы: {{ session.or_result.production.quantities }}</div>
@@ -126,9 +136,66 @@
       <div class="card" data-testid="trace-card">
         <strong>Trace:</strong> <span data-testid="trace-value">{{ session.or_result.execution_trace | join(" -> ") }}</span>
       </div>
+    {% elif session.extension_result_sections %}
+      {% for section in session.extension_result_sections %}
+        <div class="card" data-testid="extension-result-section">
+          <strong data-testid="extension-result-section-title">{{ section.title }}</strong>
+          {% for block in section.blocks %}
+            {% if block.type == "summary" %}
+              <div class="card" data-testid="extension-summary-block">
+                {% if block.title %}<div><strong>{{ block.title }}</strong></div>{% endif %}
+                <div>{{ block.text }}</div>
+              </div>
+            {% elif block.type == "kv" %}
+              <div class="card" data-testid="extension-kv-block">
+                {% if block.title %}<div><strong>{{ block.title }}</strong></div>{% endif %}
+                {% for item in block.items %}
+                  <div class="kv" data-testid="extension-kv-row"><span>{{ item.key }}</span><strong>{{ item.value }}</strong></div>
+                {% endfor %}
+              </div>
+            {% elif block.type == "table" %}
+              <div class="card" data-testid="extension-table-block">
+                {% if block.title %}<div><strong>{{ block.title }}</strong></div>{% endif %}
+                <table class="result-table" data-testid="extension-result-table">
+                  <thead>
+                    <tr>
+                      {% for column in block.columns %}
+                        <th>{{ column }}</th>
+                      {% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in block.rows %}
+                      <tr data-testid="extension-result-table-row">
+                        {% for value in row %}
+                          <td>{{ value }}</td>
+                        {% endfor %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% elif block.type == "list" %}
+              <div class="card" data-testid="extension-list-block">
+                {% if block.title %}<div><strong>{{ block.title }}</strong></div>{% endif %}
+                <ul class="result-list">
+                  {% for item in block.items %}
+                    <li data-testid="extension-list-item">{{ item }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% elif block.type == "json" %}
+              <div class="card" data-testid="extension-json-block">
+                {% if block.title %}<div><strong>{{ block.title }}</strong></div>{% endif %}
+                <pre>{{ block.value }}</pre>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endfor %}
     {% else %}
       <div class="card" data-testid="empty-results-card">
-        OR-результаты появятся после заполнения всех независимых входов и команды <code>run</code>.
+        Результаты появятся после заполнения всех независимых входов и команды <code>run</code>.
       </div>
     {% endif %}
 
@@ -174,6 +241,13 @@
     <form data-testid="chat-form" hx-post="/chat/turn" hx-target="#workspace" hx-swap="outerHTML">
       <input id="session-id-input" type="hidden" name="session_id" value="{{ session.session_id }}" />
       <div class="row">
+        <select id="extension-alias-select" name="extension_alias" data-testid="extension-alias-select">
+          {% for option in extension_options %}
+            <option value="{{ option.alias }}" {% if option.alias == session.extension_alias %}selected{% endif %}>
+              {{ option.title }}
+            </option>
+          {% endfor %}
+        </select>
         <select id="model-alias-select" name="model_alias" data-testid="model-alias-select">
           {% for option in model_options %}
             <option value="{{ option.alias }}" {% if option.alias == session.model_alias %}selected{% endif %}>
@@ -186,7 +260,7 @@
           data-testid="chat-message-input"
           name="message"
           type="text"
-          placeholder="Свободный текст или команда: start | json <stage> {...} | set <stage>.<field> <value> | run"
+          placeholder="Команда или DSL: start | json <stage> {...} | set <stage>.<field> <value> | run"
           autocomplete="off"
           required
         />

@@ -2,6 +2,7 @@
 members = [
   "apps/webapp",
   "packages/extension_api",
+  "packages/sample_study_planner_extension",
   "packages/agent_core",
   "packages/or_core",
 ]
@@ -21,11 +22,14 @@ testpaths = ["tests"]
 pythonpath = [
   "apps/webapp/src",
   "packages/extension_api/src",
+  "packages/sample_study_planner_extension/src",
   "packages/agent_core/src",
   "packages/or_core/src",
 ]
 markers = [
   "e2e: browser end-to-end tests against the live HTMX web application",
+  "extensions_e2e: deterministic Selenium tests focused on extension switching and sample extensions",
+  "extension_video_demo: deterministic recorded Selenium demos for extension switching",
   "openai_smoke: optional browser smoke tests that require OPENAI_API_KEY and explicit opt-in",
   "openai_video_demo: recorded Selenium demo scenarios that require OPENAI_API_KEY and visible X11 Chromium",
   "openai_short_video_demo: short recorded Selenium demos that require OPENAI_API_KEY and visible X11 Chromium",

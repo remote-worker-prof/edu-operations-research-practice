@@ -13,10 +13,12 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import uuid4
 
+from extension_api import ExtensionResultSection
 from or_core.models import ORResult, ScenarioDraft
 from pydantic import BaseModel, Field
 
 from agent_core.config import DEFAULT_MODEL_ALIAS
+from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
 
 STAGE_ORDER = ["production", "shipment", "assignment", "routing"]
 StageName = Literal["production", "shipment", "assignment", "routing"]
@@ -41,14 +43,14 @@ class CollectionState(BaseModel):
 
     mode: Literal["wizard", "json", "nl"] = "wizard"
     phase: Literal["drafting", "awaiting_confirmation", "ready_to_run", "running"] = "drafting"
-    current_stage: StageName | None = "production"
+    current_stage: str | None = "production"
     ready_to_run: bool = False
 
 
 class InputPatch(BaseModel):
     """Частичное обновление draft, извлечённое из команды пользователя."""
 
-    stage: StageName
+    stage: str
     payload: dict[str, Any] | None = None
     path: str | None = None
     value: Any = None
@@ -57,7 +59,7 @@ class InputPatch(BaseModel):
 class CandidatePatch(BaseModel):
     """Кандидат на обновление draft, извлечённый из естественного языка."""
 
-    stage: StageName
+    stage: str
     field_path: str
     value: Any
     source_text: str
@@ -107,8 +109,8 @@ class CommandResult(BaseModel):
     ]
     message: str | None = None
     patch: InputPatch | None = None
-    stage: StageName | None = None
-    preset_ref: Literal["demo"] | None = None
+    stage: str | None = None
+    preset_ref: str | None = None
     errors: list[str] = Field(default_factory=list)
 
 
@@ -124,10 +126,14 @@ class AgentSession(BaseModel):
 
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     messages: list[ChatMessage] = Field(default_factory=list)
+    extension_alias: str = DEFAULT_OR_EXTENSION_ALIAS
+    extension_draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    extension_result: dict[str, Any] | None = None
+    extension_result_sections: list[ExtensionResultSection] = Field(default_factory=list)
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)
     confirmation_state: ConfirmationState = Field(default_factory=ConfirmationState)
-    missing_fields: list[StageName] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
     validation_errors_by_stage: dict[str, list[str]] = Field(default_factory=dict)
     teaching_hints: list[TeachingHint] = Field(default_factory=list)
     nl_uncertainties: list[str] = Field(default_factory=list)
@@ -146,6 +152,7 @@ class ChatTurnRequest(BaseModel):
 
     session_id: str | None = None
     model_alias: str = DEFAULT_MODEL_ALIAS
+    extension_alias: str | None = None
     message: str = Field(..., min_length=1)
 
 

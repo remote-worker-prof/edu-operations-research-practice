@@ -16,6 +16,14 @@
 детерминированным и методически управляемым, но не сводится к одному
 жёстко зашитому demo-case.
 
+Начиная с ветки `feature/extensions-platform`, в UI уже виден первый demoable
+slice платформы расширений:
+
+- built-in extension `default_or` с текущим OR-конвейером;
+- отдельный `study_planner` как минимальный пример student-authored extension;
+- выбор extension происходит **на сессию**;
+- если сессия уже непустая, перед сменой extension нужно сначала отправить `reset`.
+
 ## Технологии
 
 - Python 3.11 + `uv`
@@ -53,6 +61,9 @@ make dev
 make check
 make check-all
 make test-e2e
+make test-e2e-extensions
+make test-e2e-extensions-demo
+make test-e2e-extensions-video-pack
 make test-e2e-openai
 make test-e2e-openai-demo
 make test-e2e-openai-demo-record
@@ -103,6 +114,24 @@ make doctor
 make test-e2e
 ```
 
+Deterministic extension switching flow через Selenium:
+
+```bash
+make test-e2e-extensions
+```
+
+Visible deterministic extension demo without recording:
+
+```bash
+make test-e2e-extensions-demo
+```
+
+Recorded deterministic extension mini-pack:
+
+```bash
+make test-e2e-extensions-video-pack
+```
+
 Optional real OpenAI smoke:
 
 ```bash
@@ -139,12 +168,14 @@ make test-e2e-openai-video-pack
 
 - [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md)
 - [docs/assets/selenium_videos/short/README.md](docs/assets/selenium_videos/short/README.md)
+- [docs/assets/selenium_videos/extensions/README.md](docs/assets/selenium_videos/extensions/README.md)
 - [docs/video_scenarios/README.md](docs/video_scenarios/README.md)
 
 Visible demo/video target'ы теперь специально замедлены по умолчанию для занятий,
 скринкастов и покадрового объяснения. Быстрый regression-контур остаётся таким:
 
 - `make test-e2e`
+- `make test-e2e-extensions`
 - `make test-e2e-openai`
 
 Все OpenAI target (`make test-e2e-openai`, `make test-e2e-openai-demo`,
@@ -244,10 +275,20 @@ make test-e2e-openai-short-video-pack VIDEO_CASE=nl_reject_short
 - `validation_recovery_short`
 - `ambiguity_resolution_short`
 
+Доступные deterministic extension video scenarios:
+
+- `extensions_selector_overview`
+- `switch_to_sample_and_run`
+- `blocked_switch_until_reset`
+- `switch_back_to_default_or`
+
 Восемь основных режимов запуска Selenium:
 
 - `make test-e2e` — быстрый deterministic headless regression suite.
 - `make test-e2e-openai` — быстрый real-provider smoke без записи.
+- `make test-e2e-extensions` — быстрый deterministic Selenium-контур для extension switching.
+- `make test-e2e-extensions-demo` — видимый deterministic demo-показ selector/switching.
+- `make test-e2e-extensions-video-pack` — записывает набор из 4 deterministic extension роликов.
 - `make test-e2e-openai-demo` — видимый demo-запуск с паузами, без записи.
 - `make test-e2e-openai-demo-record` — видимый demo-запуск с записью одного ролика.
 - `make test-e2e-openai-short-demo` — короткий видимый demo-запуск без записи.
@@ -323,6 +364,7 @@ exact сообщениями в чат и ожидаемыми checkpoints, см
 - [docs/chat_input_language_for_beginners_ru.md](docs/chat_input_language_for_beginners_ru.md) — отдельный beginner-friendly reference по языку ввода чата, DSL-формам и safe-практикам.
 - [docs/assets/selenium_videos/README.md](docs/assets/selenium_videos/README.md) — набор записанных Selenium/Chromium MP4-роликов для демонстрации.
 - [docs/assets/selenium_videos/short/README.md](docs/assets/selenium_videos/short/README.md) — короткий polished-набор Selenium/Chromium роликов для быстрых показов и скринкастов.
+- [docs/assets/selenium_videos/extensions/README.md](docs/assets/selenium_videos/extensions/README.md) — deterministic mini-pack по selector'у extensions и переключению между `default_or` и `study_planner`.
 - `docs/review_outcome_v1.md` — краткий итог завершённого remediation после Code Review v1.
 - `docs/documentation_standard_ru.md` — стандарт учебной кодовой документации для Python-кода проекта.
 - `docs/or_subgraph_math.md` — формализация 4 оптимизационных этапов OR-подграфа.

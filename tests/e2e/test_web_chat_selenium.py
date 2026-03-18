@@ -123,13 +123,26 @@ SHIPMENT_JSON = _stage_json("shipment", FAST_PAYLOADS["shipment"])
 ASSIGNMENT_JSON = _stage_json("assignment", FAST_PAYLOADS["assignment"])
 ROUTING_JSON = _stage_json("routing", FAST_PAYLOADS["routing"])
 SHIPMENT_SHORTCUT_JSON = json.dumps(FAST_PAYLOADS["shipment"], ensure_ascii=False)
+STUDY_COURSES_JSON = _stage_json(
+    "courses",
+    {"names": ["Math", "ML", "Databases"], "hours_required": [30, 24, 18]},
+)
+STUDY_TIME_BUDGET_JSON = _stage_json("time_budget", {"weekly_hours": 12, "weeks": 4})
+STUDY_TIME_BUDGET_SHORTCUT_JSON = json.dumps({"weekly_hours": 12, "weeks": 4}, ensure_ascii=False)
+STUDY_PRIORITIES_JSON = _stage_json("priorities", {"weights": [0.5, 0.3, 0.2]})
 
 
 @dataclass(frozen=True)
 class ScreencastStep:
     """Один шаг видео-сценария поверх Selenium page-object."""
 
-    kind: Literal["select_model", "type_message", "chunked_message", "pause"]
+    kind: Literal[
+        "select_model",
+        "select_extension",
+        "type_message",
+        "chunked_message",
+        "pause",
+    ]
     value: str | float
     after_pause_seconds: float | None = None
 
@@ -287,6 +300,11 @@ def _run_screencast_script(chat_page, steps: list[ScreencastStep]) -> None:
         if step.kind == "select_model":
             chat_page.select_model(str(step.value), after_pause_seconds=step.after_pause_seconds)
             continue
+        if step.kind == "select_extension":
+            chat_page.select_extension(
+                str(step.value), after_pause_seconds=step.after_pause_seconds
+            )
+            continue
         if step.kind == "type_message":
             chat_page.send_message(
                 str(step.value),
@@ -323,6 +341,19 @@ def _assert_openai_results_rendered(chat_page) -> None:
     )
 
 
+def _assert_study_planner_results_rendered(chat_page) -> None:
+    """Проверяет generic data-driven results для sample extension."""
+    assert chat_page.text_of("current-extension-value") == "Study Planner (study_planner)"
+    assert not chat_page.has_testid("production-result-card")
+    titles = [
+        element.text for element in chat_page.find_all_by_testid("extension-result-section-title")
+    ]
+    assert titles == ["Итог плана", "Сводка бюджета", "Рекомендации по курсам"]
+    table_rows = [row.text for row in chat_page.find_all_by_testid("extension-result-table-row")]
+    assert any("Math" in row for row in table_rows)
+    assert any("24.0" in row or "24" in row for row in table_rows)
+
+
 def _draft_from_last_assistant_message(chat_page) -> dict[str, object]:
     """Парсит JSON-представление draft из последнего assistant-сообщения."""
     message = chat_page.last_chat_message(role="assistant")
@@ -352,6 +383,7 @@ def test_homepage_renders_workspace_and_local_htmx(chat_page, live_server: str) 
     """Проверяет первичный рендер страницы и локальную раздачу HTMX asset."""
     assert chat_page.session_id()
     assert chat_page.text_of("session-id-value") == chat_page.session_id()
+    assert chat_page.find_by_testid("extension-alias-select").get_attribute("value") == "default_or"
     assert chat_page.find_by_testid("model-alias-select").get_attribute("value") == "openai_default"
     assert "load preset demo" in chat_page.last_chat_message(role="assistant")
     assert "/static/vendor/htmx-2.0.4.min.js" in chat_page.driver.page_source
@@ -369,7 +401,7 @@ def test_homepage_renders_workspace_and_local_htmx(chat_page, live_server: str) 
 )
 def test_homepage_renders_with_non_empty_extension_registry(chat_page, web_app) -> None:
     """Проверяет browser startup-path с непустым custom extension registry."""
-    assert web_app.state.extension_registry.aliases() == ["study_planner"]
+    assert web_app.state.extension_registry.aliases() == ["default_or", "study_planner"]
     assert chat_page.session_id()
     assert chat_page.text_of("session-id-value") == chat_page.session_id()
     assert "load preset demo" in chat_page.last_chat_message(role="assistant")
@@ -402,7 +434,11 @@ def test_default_browser_flow_still_runs_with_custom_extension_registry(chat_pag
 )
 def test_homepage_renders_with_multiple_extensions_in_registry(chat_page, web_app) -> None:
     """Проверяет startup browser path c несколькими fake extensions в registry."""
-    assert web_app.state.extension_registry.aliases() == ["lab_planner", "study_planner"]
+    assert web_app.state.extension_registry.aliases() == [
+        "default_or",
+        "lab_planner",
+        "study_planner",
+    ]
     assert web_app.state.extension_registry.require("lab_planner").manifest.title == "Lab Planner"
     assert (
         web_app.state.extension_registry.require("study_planner").manifest.title == "Study Planner"
@@ -426,6 +462,7 @@ def test_default_browser_flow_still_runs_with_multiple_extensions_registry(
     }
     assert set(discovered["lab_planner"][:2]) == {"labs", "equipment"}
     assert discovered["lab_planner"][-1] == "calendar"
+    assert discovered["default_or"] == ["production", "shipment", "assignment", "routing"]
     assert discovered["study_planner"] == ["courses", "time_budget", "priorities"]
 
     chat_page.send_message("load preset demo")
@@ -439,7 +476,7 @@ def test_start_flow_shows_drafting_state_and_human_labels(chat_page) -> None:
     chat_page.send_message("start")
 
     assert chat_page.text_of("collection-phase") == "drafting"
-    assert chat_page.text_of("current-stage-value") == "production"
+    assert chat_page.text_of("current-stage-value") == "1) Production"
     assert "Заполните stage Production" in chat_page.last_chat_message(role="assistant")
     assert chat_page.has_testid("missing-fields-card")
     assert "1) Production" in [
@@ -481,13 +518,13 @@ def test_load_preset_demo_and_run_renders_results(chat_page) -> None:
 def test_russian_command_aliases_cover_start_show_next_run_and_reset(chat_page) -> None:
     """Проверяет ru-aliases команд интерактивного flow через live UI."""
     chat_page.send_message("старт")
-    assert chat_page.text_of("current-stage-value") == "production"
+    assert chat_page.text_of("current-stage-value") == "1) Production"
 
     chat_page.send_message("edit routing")
-    assert chat_page.text_of("current-stage-value") == "routing"
+    assert chat_page.text_of("current-stage-value") == "4) Routing"
 
     chat_page.send_message("далее")
-    assert chat_page.text_of("current-stage-value") == "production"
+    assert chat_page.text_of("current-stage-value") == "1) Production"
 
     chat_page.send_message("загрузить демо")
     assert chat_page.text_of("preset-value") == "demo"
@@ -547,11 +584,11 @@ def test_next_moves_to_first_missing_stage_and_updates_current_stage(chat_page) 
     chat_page.send_message(PRODUCTION_JSON)
     chat_page.send_message("edit routing")
 
-    assert chat_page.text_of("current-stage-value") == "routing"
+    assert chat_page.text_of("current-stage-value") == "4) Routing"
 
     chat_page.send_message("next")
 
-    assert chat_page.text_of("current-stage-value") == "shipment"
+    assert chat_page.text_of("current-stage-value") == "2) Shipment"
     assert "Заполните stage Shipment" in chat_page.last_chat_message(role="assistant")
 
 
@@ -715,7 +752,7 @@ def test_reset_clears_results_and_returns_to_initial_flow(chat_page) -> None:
 
     assert not chat_page.has_testid("production-result-card")
     assert chat_page.has_testid("empty-results-card")
-    assert chat_page.text_of("current-stage-value") == "production"
+    assert chat_page.text_of("current-stage-value") == "1) Production"
     assert "Черновик сброшен" in chat_page.last_chat_message(role="assistant")
 
 
@@ -731,6 +768,167 @@ def test_provider_unavailable_flow_uses_deterministic_explanation(chat_page, mon
     assert "Результат рассчитан детерминированным OR-пайплайном" in chat_page.last_chat_message(
         role="assistant"
     )
+
+
+@pytest.mark.extensions_e2e
+def test_homepage_shows_extension_selector_and_available_extensions(chat_page) -> None:
+    """Показывает selector и built-in/sample extensions уже на стартовой странице."""
+    assert chat_page.find_by_testid("extension-alias-select").get_attribute("value") == "default_or"
+    chips = [chip.text for chip in chat_page.find_all_by_testid("available-extension-chip")]
+    assert "Default OR Pipeline (default_or)" in chips
+    assert "Study Planner (study_planner)" in chips
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+
+
+@pytest.mark.extensions_e2e
+def test_sample_extension_command_flow_runs_and_renders_generic_results(chat_page) -> None:
+    """Проверяет UI-flow sample extension через selector, alias и generic results."""
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("start")
+    assert chat_page.text_of("current-extension-value") == "Study Planner (study_planner)"
+    assert chat_page.text_of("current-stage-value") == "1) Курсы"
+
+    chat_page.send_message(STUDY_COURSES_JSON)
+    chat_page.send_message("edit budget")
+    chat_page.send_message(STUDY_TIME_BUDGET_SHORTCUT_JSON)
+    chat_page.send_message(STUDY_PRIORITIES_JSON)
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("run")
+    _assert_study_planner_results_rendered(chat_page)
+
+
+@pytest.mark.extensions_e2e
+def test_extension_switch_is_blocked_until_reset(chat_page) -> None:
+    """Проверяет session policy: switch запрещён в непустой сессии без reset."""
+    chat_page.select_model("local_default")
+    chat_page.send_message("load preset demo")
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("help")
+
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+    assert "Нельзя сменить extension" in chat_page.last_chat_message(role="assistant")
+    assert chat_page.find_by_testid("extension-alias-select").get_attribute("value") == "default_or"
+
+
+@pytest.mark.extensions_e2e
+def test_reset_then_switch_to_sample_extension_succeeds(chat_page) -> None:
+    """Проверяет успешный switch после `reset` в той же сессии."""
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("reset")
+
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("start")
+
+    assert chat_page.text_of("current-extension-value") == "Study Planner (study_planner)"
+    assert chat_page.text_of("current-stage-value") == "1) Курсы"
+    assert "Заполните stage Курсы" in chat_page.last_chat_message(role="assistant")
+
+
+@pytest.mark.extensions_e2e
+def test_switch_back_to_default_or_after_sample_reset_and_run(chat_page) -> None:
+    """Проверяет возврат к `default_or` после использования sample extension."""
+    chat_page.select_model("local_default")
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("start")
+    chat_page.send_message(STUDY_COURSES_JSON)
+    assert chat_page.text_of("current-extension-value") == "Study Planner (study_planner)"
+
+    chat_page.send_message("reset")
+    chat_page.select_extension("default_or")
+    chat_page.send_message("load preset demo")
+    chat_page.send_message("run")
+
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+    _assert_or_results_rendered(chat_page)
+
+
+@pytest.mark.extension_video_demo
+def test_extensions_video_selector_overview(chat_page) -> None:
+    """Короткий deterministic ролик: selector и switch на sample extension."""
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_extension", "study_planner"),
+            ScreencastStep(
+                "type_message", "help", after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS
+            ),
+        ],
+    )
+
+    assert chat_page.text_of("current-extension-value") == "Study Planner (study_planner)"
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.extension_video_demo
+def test_extensions_video_switch_to_sample_and_run(chat_page) -> None:
+    """Короткий deterministic ролик: full sample-extension run."""
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_extension", "study_planner"),
+            ScreencastStep("type_message", "start"),
+            ScreencastStep("chunked_message", STUDY_COURSES_JSON),
+            ScreencastStep("type_message", "edit budget"),
+            ScreencastStep(
+                "chunked_message",
+                STUDY_TIME_BUDGET_SHORTCUT_JSON,
+                after_pause_seconds=_SHORT_STATE_READING_PAUSE_SECONDS,
+            ),
+            ScreencastStep("chunked_message", STUDY_PRIORITIES_JSON),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    _assert_study_planner_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.extension_video_demo
+def test_extensions_video_blocked_switch_until_reset(chat_page) -> None:
+    """Короткий deterministic ролик: blocked switch policy без reset."""
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep("select_extension", "study_planner"),
+            ScreencastStep(
+                "type_message", "help", after_pause_seconds=_SHORT_SHOWCASE_PAUSE_SECONDS
+            ),
+        ],
+    )
+
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+    assert "Нельзя сменить extension" in chat_page.last_chat_message(role="assistant")
+    chat_page.pause_for_screencast_finish()
+
+
+@pytest.mark.extension_video_demo
+def test_extensions_video_switch_back_to_default_or(chat_page) -> None:
+    """Короткий deterministic ролик: reset, switch back, then run default OR flow."""
+    _run_screencast_script(
+        chat_page,
+        [
+            ScreencastStep("select_model", "local_default"),
+            ScreencastStep("select_extension", "study_planner"),
+            ScreencastStep("type_message", "start"),
+            ScreencastStep("chunked_message", STUDY_COURSES_JSON),
+            ScreencastStep("type_message", "reset"),
+            ScreencastStep("select_extension", "default_or"),
+            ScreencastStep("type_message", "load preset demo"),
+            ScreencastStep("type_message", "run"),
+        ],
+    )
+
+    assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
+    _assert_or_results_rendered(chat_page)
+    chat_page.pause_for_screencast_finish()
 
 
 @pytest.mark.openai_smoke

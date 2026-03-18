@@ -156,10 +156,12 @@ class ExtensionManifest(BaseModel):
     def validate_stage_graph(self) -> "ExtensionManifest":
         """Reject malformed graphs early, before runtime wiring."""
         stage_map: dict[str, StageSpec] = {}
-        for stage in self.stage_graph:
+        stage_position: dict[str, int] = {}
+        for index, stage in enumerate(self.stage_graph):
             if stage.stage_id in stage_map:
                 raise ValueError(f"duplicate stage_id in stage_graph: {stage.stage_id}")
             stage_map[stage.stage_id] = stage
+            stage_position[stage.stage_id] = index
 
         inbound: dict[str, int] = {stage_id: 0 for stage_id in stage_map}
         adjacency: dict[str, list[str]] = {stage_id: [] for stage_id in stage_map}
@@ -175,12 +177,15 @@ class ExtensionManifest(BaseModel):
                 inbound[stage.stage_id] += 1
                 adjacency[dependency].append(stage.stage_id)
 
-        queue = deque(sorted(stage_id for stage_id, degree in inbound.items() if degree == 0))
+        queue = deque(stage_id for stage_id in self.stage_ids() if inbound.get(stage_id, 0) == 0)
         visited: list[str] = []
         while queue:
             current = queue.popleft()
             visited.append(current)
-            for dependent in sorted(adjacency[current]):
+            for dependent in sorted(
+                adjacency[current],
+                key=lambda stage_id: stage_position[stage_id],
+            ):
                 inbound[dependent] -= 1
                 if inbound[dependent] == 0:
                     queue.append(dependent)
@@ -200,6 +205,7 @@ class ExtensionManifest(BaseModel):
     def topological_stage_ids(self) -> list[str]:
         """Return a stable topological order derived from `depends_on`."""
         stage_map = self.stage_map()
+        stage_position = {stage.stage_id: index for index, stage in enumerate(self.stage_graph)}
         inbound: dict[str, int] = {stage_id: 0 for stage_id in stage_map}
         adjacency: dict[str, list[str]] = {stage_id: [] for stage_id in stage_map}
         for stage in self.stage_graph:
@@ -207,12 +213,15 @@ class ExtensionManifest(BaseModel):
                 inbound[stage.stage_id] += 1
                 adjacency[dependency].append(stage.stage_id)
 
-        queue = deque(sorted(stage_id for stage_id, degree in inbound.items() if degree == 0))
+        queue = deque(stage_id for stage_id in self.stage_ids() if inbound.get(stage_id, 0) == 0)
         order: list[str] = []
         while queue:
             current = queue.popleft()
             order.append(current)
-            for dependent in sorted(adjacency[current]):
+            for dependent in sorted(
+                adjacency[current],
+                key=lambda stage_id: stage_position[stage_id],
+            ):
                 inbound[dependent] -= 1
                 if inbound[dependent] == 0:
                     queue.append(dependent)

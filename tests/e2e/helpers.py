@@ -118,6 +118,18 @@ class ChatPage:
         self._pause(self._step_pause_seconds(after_pause_seconds))
         return self
 
+    def select_extension(
+        self,
+        alias: str,
+        *,
+        after_pause_seconds: float | None = None,
+    ) -> "ChatPage":
+        """Выбирает alias extension в `<select>`."""
+        select = Select(self.driver.find_element(By.ID, "extension-alias-select"))
+        select.select_by_value(alias)
+        self._pause(self._step_pause_seconds(after_pause_seconds))
+        return self
+
     def pause(self, seconds: float | None = None) -> "ChatPage":
         """Делает публичную demo-паузу между смысловыми шагами сценария."""
         self._pause(self.demo_step_delay if seconds is None else seconds)

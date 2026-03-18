@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
 from extension_api import (
     DuplicateExtensionAliasError,
     ExtensionManifest,
@@ -186,5 +187,8 @@ def test_create_app_attaches_extension_registry_to_app_state() -> None:
 
     app = create_app(extension_registry=registry)
 
-    assert app.state.extension_registry is registry
-    assert app.state.service.extension_registry is registry
+    assert app.state.extension_registry is app.state.service.extension_registry
+    assert app.state.extension_registry.require(DEFAULT_OR_EXTENSION_ALIAS).manifest.title == (
+        "Default OR Pipeline"
+    )
+    assert app.state.extension_registry.require("study_planner").manifest.title == "Study Planner"
