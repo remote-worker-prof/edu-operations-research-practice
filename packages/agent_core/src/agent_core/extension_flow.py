@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any, Callable
 
-from extension_api import ExtensionManifest, ExtensionRegistry, ExtensionRuntime
+from extension_api import (
+    ExtensionManifest,
+    ExtensionRegistry,
+    ExtensionRuntime,
+    PresetLoaderExtensionProvider,
+)
 from or_core.models import ScenarioDraft
+from pydantic import BaseModel
 
 from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
 from agent_core.extension_commands import parse_extension_command
@@ -137,6 +144,61 @@ def _invalidate_extension_result(session: AgentSession) -> None:
     session.pre_run_summary = None
 
 
+def _serialize_extension_result_value(
+    value: Any,
+    *,
+    warnings: list[str],
+    path: str = "result",
+) -> Any:
+    """Converts extension results into JSON-safe values for session/API transport."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, BaseModel):
+        return _serialize_extension_result_value(
+            value.model_dump(mode="json"),
+            warnings=warnings,
+            path=path,
+        )
+    if is_dataclass(value) and not isinstance(value, type):
+        return _serialize_extension_result_value(
+            asdict(value),
+            warnings=warnings,
+            path=path,
+        )
+    if isinstance(value, Mapping):
+        return {
+            str(key): _serialize_extension_result_value(
+                item,
+                warnings=warnings,
+                path=f"{path}.{key}",
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [
+            _serialize_extension_result_value(
+                item,
+                warnings=warnings,
+                path=f"{path}[{index}]",
+            )
+            for index, item in enumerate(value)
+        ]
+
+    warnings.append(
+        f"Extension result at `{path}` of type `{type(value).__name__}` "
+        "is not JSON-serializable; stored repr fallback instead."
+    )
+    return {"repr": repr(value)}
+
+
+def _serialize_extension_result(value: Any) -> tuple[Any, str | None]:
+    """Serializes one runtime result and returns an optional warning message."""
+    warnings: list[str] = []
+    serialized = _serialize_extension_result_value(value, warnings=warnings)
+    warning = warnings[0] if warnings else None
+    return serialized, warning
+
+
 def _recompute_extension_state(
     *,
     session: AgentSession,
@@ -189,8 +251,9 @@ def _handle_start(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime
+    del result, runtime, provider
     session.extension_draft = {}
     first_stage = stage_order_for_manifest(manifest)[0]
     session.collection_state.current_stage = _next_missing_stage(session, manifest) or first_stage
@@ -209,8 +272,9 @@ def _handle_reset(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime
+    del result, runtime, provider
     reset_session_for_extension(session, alias=session.extension_alias, manifest=manifest)
     return GenericCollectOutcome(
         assistant_message=(
@@ -227,8 +291,9 @@ def _handle_edit_stage(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del runtime
+    del runtime, provider
     if result.stage is None:
         return GenericCollectOutcome(assistant_message="Ошибка ввода: не указан stage для edit.")
     session.collection_state.current_stage = result.stage
@@ -242,8 +307,9 @@ def _handle_stage_json(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del manifest, runtime
+    del manifest, runtime, provider
     if result.patch is None or result.patch.payload is None:
         return GenericCollectOutcome(
             assistant_message="Ошибка ввода: JSON patch должен быть объектом."
@@ -263,8 +329,9 @@ def _handle_set_field(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del manifest, runtime
+    del manifest, runtime, provider
     if result.patch is None or result.patch.path is None:
         return GenericCollectOutcome(
             assistant_message="Ошибка ввода: отсутствует путь поля для set."
@@ -289,8 +356,9 @@ def _handle_show_input(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del result, manifest, runtime
+    del result, manifest, runtime, provider
     rendered = json.dumps(session.extension_draft, ensure_ascii=False, indent=2)
     return GenericCollectOutcome(assistant_message=f"Текущий draft:\n{rendered}")
 
@@ -301,8 +369,9 @@ def _handle_next(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime
+    del result, runtime, provider
     next_stage = _next_missing_stage(session, manifest)
     session.collection_state.mode = "wizard"
     if next_stage is None:
@@ -319,8 +388,9 @@ def _handle_run(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del result
+    del result, provider
     _recompute_extension_state(session=session, manifest=manifest, runtime=runtime)
     if not session.collection_state.ready_to_run:
         next_stage = _next_missing_stage(session, manifest)
@@ -345,12 +415,12 @@ def _handle_run(
             )
         )
 
-    if isinstance(raw_result, dict):
-        session.extension_result = raw_result
-    else:
-        session.extension_result = {"repr": repr(raw_result)}
+    serialized_result, serialization_warning = _serialize_extension_result(raw_result)
+    session.extension_result = serialized_result
     session.extension_result_sections = runtime.build_result_sections(raw_result)
     session.explanation = runtime.fallback_explain(raw_result)
+    if serialization_warning and serialization_warning not in session.warnings:
+        session.warnings.append(serialization_warning)
     return GenericCollectOutcome(
         assistant_message=session.explanation or "Расчёт extension завершён."
     )
@@ -362,8 +432,9 @@ def _handle_help(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del session, result, runtime
+    del session, result, runtime, provider
     stages = ", ".join(stage_order_for_manifest(manifest))
     return GenericCollectOutcome(
         assistant_message=(
@@ -380,8 +451,9 @@ def _handle_invalid(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del session, manifest, runtime
+    del session, manifest, runtime, provider
     issues = "; ".join(result.errors) if result.errors else "не распознана команда"
     return GenericCollectOutcome(assistant_message=f"Ошибка ввода: {issues}")
 
@@ -392,13 +464,66 @@ def _handle_load_preset(
     result: CommandResult,
     manifest: ExtensionManifest,
     runtime: ExtensionRuntime,
+    provider: object,
 ) -> GenericCollectOutcome:
-    del session, result, runtime
+    del runtime
+    if result.preset_ref is None:
+        return GenericCollectOutcome(
+            assistant_message="Ошибка preset: не указана ссылка на built-in preset."
+        )
+    if not isinstance(provider, PresetLoaderExtensionProvider):
+        return GenericCollectOutcome(
+            assistant_message=(
+                f"Extension `{manifest.alias}` не поддерживает загрузку preset "
+                f"`{result.preset_ref}`."
+            )
+        )
+
+    try:
+        raw_preset = provider.load_preset(result.preset_ref)
+    except Exception as exc:
+        return GenericCollectOutcome(
+            assistant_message=(
+                f"Не удалось загрузить preset `{result.preset_ref}` "
+                f"для extension `{manifest.alias}`: {exc}"
+            )
+        )
+
+    if not isinstance(raw_preset, dict):
+        return GenericCollectOutcome(
+            assistant_message=(
+                f"Preset `{result.preset_ref}` для extension `{manifest.alias}` "
+                "должен возвращать объект вида {stage_id: { ... }}."
+            )
+        )
+
+    stage_map = manifest.stage_map()
+    normalized_preset: dict[str, dict[str, Any]] = {}
+    for stage_id, payload in raw_preset.items():
+        if stage_id not in stage_map:
+            return GenericCollectOutcome(
+                assistant_message=(
+                    f"Preset `{result.preset_ref}` для extension `{manifest.alias}` "
+                    f"содержит неизвестный stage `{stage_id}`."
+                )
+            )
+        if not isinstance(payload, dict):
+            return GenericCollectOutcome(
+                assistant_message=(
+                    f"Preset `{result.preset_ref}` для extension `{manifest.alias}` "
+                    f"должен возвращать объект stage `{stage_id}`."
+                )
+            )
+        normalized_preset[stage_id] = dict(payload)
+
+    session.extension_draft = normalized_preset
+    session.collection_state.current_stage = None
+    session.collection_state.mode = "json"
     return GenericCollectOutcome(
         assistant_message=(
-            f"Extension `{manifest.alias}` не предоставляет built-in preset. "
-            "Введите данные по stage-ам вручную."
-        )
+            f"Built-in preset `{result.preset_ref}` загружен для extension `{manifest.alias}`."
+        ),
+        draft_changed=True,
     )
 
 
@@ -439,7 +564,13 @@ def handle_extension_turn(
         manifest=manifest,
     )
     handler = _HANDLERS.get(result.action, _handle_invalid)
-    outcome = handler(session=session, result=result, manifest=manifest, runtime=runtime)
+    outcome = handler(
+        session=session,
+        result=result,
+        manifest=manifest,
+        runtime=runtime,
+        provider=discovered.provider,
+    )
 
     if outcome.draft_changed:
         _invalidate_extension_result(session)

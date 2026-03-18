@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from extension_api import (
     ExtensionManifest,
     ExtensionResultSection,
@@ -14,7 +16,9 @@ from extension_api import (
 )
 from or_core.models import ORResult, ScenarioDraft
 from or_core.pipeline import ORPipeline
-from or_core.scenario import ScenarioAssembler
+from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
+
+from agent_core.config import default_scenario_path
 
 DEFAULT_OR_EXTENSION_ALIAS = "default_or"
 
@@ -237,3 +241,16 @@ class DefaultORExtensionProvider:
 
     def create_runtime(self) -> DefaultORCompatibilityRuntime:
         return DefaultORCompatibilityRuntime()
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, Any]]:
+        """Loads the built-in demo preset as a generic stage draft."""
+        if preset_ref != "demo":
+            raise ValueError(f"Unsupported default_or preset: {preset_ref}")
+
+        draft = ScenarioPresetLoader(default_scenario_path()).load_demo_draft()
+        return {
+            "production": dict(draft.production),
+            "shipment": dict(draft.shipment),
+            "assignment": dict(draft.assignment),
+            "routing": dict(draft.routing),
+        }

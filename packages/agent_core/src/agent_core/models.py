@@ -119,7 +119,7 @@ class ExtensionStateSnapshot(BaseModel):
 
     alias: str
     draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    result: dict[str, Any] | None = None
+    result: Any | None = None
     result_sections: list[ExtensionResultSection] = Field(default_factory=list)
 
 
@@ -137,7 +137,7 @@ class AgentSession(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     extension_alias: str = DEFAULT_OR_EXTENSION_ALIAS
     extension_draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    extension_result: dict[str, Any] | None = None
+    extension_result: Any | None = None
     extension_result_sections: list[ExtensionResultSection] = Field(default_factory=list)
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)

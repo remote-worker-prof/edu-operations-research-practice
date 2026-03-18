@@ -23,6 +23,7 @@ from .registry import (
     ExtensionRegistry,
     ExtensionRuntime,
     InvalidExtensionProviderError,
+    PresetLoaderExtensionProvider,
 )
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "KVBlock",
     "KVItem",
     "ListBlock",
+    "PresetLoaderExtensionProvider",
     "StageSpec",
     "SummaryBlock",
     "TableBlock",

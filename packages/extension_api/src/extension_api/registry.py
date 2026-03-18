@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import metadata
 from importlib.metadata import EntryPoint
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 from .constants import EXTENSION_ENTRY_POINT_GROUP
 from .models import ExtensionManifest, ExtensionResultSection
@@ -69,6 +69,14 @@ class ExtensionProvider(Protocol):
         """Create a fresh runtime instance for one application process."""
 
 
+@runtime_checkable
+class PresetLoaderExtensionProvider(Protocol):
+    """Optional provider capability for built-in deterministic presets."""
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, Any]]:
+        """Return a manifest-shaped stage draft for one named preset."""
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredExtension:
     """One extension discovered from the Python environment."""
@@ -83,6 +91,14 @@ class DiscoveredExtension:
     def create_runtime(self) -> ExtensionRuntime:
         """Construct a runtime from the underlying provider."""
         return self.provider.create_runtime()
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, Any]]:
+        """Load one built-in preset from a provider that advertises this capability."""
+        if not isinstance(self.provider, PresetLoaderExtensionProvider):
+            raise InvalidExtensionProviderError(
+                f"extension {self.alias!r} does not implement load_preset(preset_ref)"
+            )
+        return self.provider.load_preset(preset_ref)
 
 
 def _looks_like_provider(candidate: object) -> bool:
@@ -108,12 +124,25 @@ def _coerce_provider(loaded: object, *, entry_point_name: str) -> ExtensionProvi
     return candidate  # type: ignore[return-value]
 
 
+def _validate_discovered_extension(extension: DiscoveredExtension) -> None:
+    """Validate manifest/provider consistency before exposing the extension."""
+    if extension.manifest.default_preset and not isinstance(
+        extension.provider, PresetLoaderExtensionProvider
+    ):
+        raise InvalidExtensionProviderError(
+            f"extension {extension.alias!r} declares default_preset="
+            f"{extension.manifest.default_preset!r}, but provider {extension.source} "
+            "does not implement load_preset(preset_ref)"
+        )
+
+
 class ExtensionRegistry:
     """In-memory registry of discovered installable extensions."""
 
     def __init__(self, discovered: Iterable[DiscoveredExtension] | None = None) -> None:
         self._by_alias: dict[str, DiscoveredExtension] = {}
         for extension in discovered or ():
+            _validate_discovered_extension(extension)
             if extension.alias in self._by_alias:
                 existing = self._by_alias[extension.alias]
                 raise DuplicateExtensionAliasError(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+from typing import Any
 
 from extension_api import (
     ExtensionManifest,
@@ -22,6 +24,7 @@ _MANIFEST = ExtensionManifest(
         "Учебное расширение для планирования учебной нагрузки без привязки к OR solver-ам."
     ),
     version="0.1.0",
+    default_preset="demo",
     stage_graph=[
         StageSpec(
             stage_id="courses",
@@ -94,6 +97,7 @@ _MANIFEST = ExtensionManifest(
     },
     examples=[
         "start",
+        "load preset demo",
         'json courses {"names":["Math","ML","Databases"],"hours_required":[30,24,18]}',
         'json time_budget {"weekly_hours":12,"weeks":4}',
         'json priorities {"weights":[0.5,0.3,0.2]}',
@@ -101,6 +105,22 @@ _MANIFEST = ExtensionManifest(
     ],
     ui_metadata={"kind": "study_planner"},
 )
+
+_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
+    "demo": {
+        "courses": {
+            "names": ["Math", "ML", "Databases"],
+            "hours_required": [30, 24, 18],
+        },
+        "time_budget": {
+            "weekly_hours": 12,
+            "weeks": 4,
+        },
+        "priorities": {
+            "weights": [0.5, 0.3, 0.2],
+        },
+    }
+}
 
 
 def _coerce_number_list(value: object) -> list[float] | None:
@@ -369,3 +389,11 @@ class StudyPlannerExtensionProvider:
 
     def create_runtime(self) -> StudyPlannerRuntime:
         return StudyPlannerRuntime()
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, Any]]:
+        """Returns one built-in deterministic preset for the sample extension."""
+        try:
+            payload = _PRESETS[preset_ref]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported study_planner preset: {preset_ref}") from exc
+        return deepcopy(payload)

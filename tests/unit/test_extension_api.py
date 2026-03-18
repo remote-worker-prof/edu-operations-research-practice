@@ -11,6 +11,7 @@ from extension_api import (
     ExtensionManifest,
     ExtensionRegistry,
     ExtensionResultSection,
+    InvalidExtensionProviderError,
     StageSpec,
 )
 from webapp.main import create_app
@@ -98,6 +99,51 @@ class DuplicateAliasProvider:
         return _FakeRuntime(self.get_manifest())
 
 
+class PresetAwareFakeProvider:
+    """Provider that honestly supports manifest.default_preset."""
+
+    def get_manifest(self) -> ExtensionManifest:
+        return ExtensionManifest(
+            alias="preset_demo",
+            title="Preset Demo",
+            description="Provider with one built-in preset",
+            version="0.1.0",
+            default_preset="demo",
+            stage_graph=[
+                StageSpec(stage_id="courses", label="Courses"),
+                StageSpec(stage_id="time_budget", label="Time Budget"),
+            ],
+        )
+
+    def create_runtime(self) -> _FakeRuntime:
+        return _FakeRuntime(self.get_manifest())
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, object]]:
+        if preset_ref != "demo":
+            raise ValueError(f"Unsupported preset: {preset_ref}")
+        return {
+            "courses": {"names": ["Math"], "hours_required": [12]},
+            "time_budget": {"weekly_hours": 6, "weeks": 2},
+        }
+
+
+class InvalidPresetProvider:
+    """Provider that lies in the manifest by declaring a preset without a loader."""
+
+    def get_manifest(self) -> ExtensionManifest:
+        return ExtensionManifest(
+            alias="invalid_preset_demo",
+            title="Invalid Preset Demo",
+            description="Broken provider for strict contract tests",
+            version="0.1.0",
+            default_preset="demo",
+            stage_graph=[StageSpec(stage_id="courses", label="Courses")],
+        )
+
+    def create_runtime(self) -> _FakeRuntime:
+        return _FakeRuntime(self.get_manifest())
+
+
 def test_extension_manifest_validates_stage_dag_and_topological_order() -> None:
     """Проверяет, что manifest поддерживает DAG-валидацию и стабильный topo-order."""
     manifest = ExtensionManifest(
@@ -172,6 +218,37 @@ def test_extension_registry_rejects_duplicate_manifest_aliases() -> None:
                 ),
             ]
         )
+
+
+def test_extension_registry_rejects_provider_that_declares_default_preset_without_loader() -> None:
+    """Проверяет strict-mode отказ на manifest/provider preset drift."""
+    with pytest.raises(InvalidExtensionProviderError, match="default_preset"):
+        ExtensionRegistry.discover(
+            entry_points=[
+                _FakeEntryPoint(
+                    name="invalid_preset_demo",
+                    provider=InvalidPresetProvider,
+                )
+            ]
+        )
+
+
+def test_extension_registry_exposes_builtin_preset_loader_when_provider_supports_it() -> None:
+    """Проверяет, что honest preset-capable provider discover'ится без деградации."""
+    registry = ExtensionRegistry.discover(
+        entry_points=[
+            _FakeEntryPoint(
+                name="preset_demo",
+                provider=PresetAwareFakeProvider,
+            )
+        ]
+    )
+
+    discovered = registry.require("preset_demo")
+    preset = discovered.load_preset("demo")
+
+    assert preset["courses"]["names"] == ["Math"]
+    assert preset["time_budget"]["weeks"] == 2
 
 
 def test_create_app_attaches_extension_registry_to_app_state() -> None:

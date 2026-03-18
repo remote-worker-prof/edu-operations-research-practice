@@ -5,13 +5,156 @@
 """
 
 import re
+from dataclasses import dataclass
+from typing import Any
 
 from agent_core.config import model_aliases, model_options
+from extension_api import (
+    DiscoveredExtension,
+    ExtensionManifest,
+    ExtensionRegistry,
+    ExtensionResultSection,
+    StageSpec,
+    SummaryBlock,
+)
 from fastapi.testclient import TestClient
 from or_core.exceptions import ORPipelineError
-from webapp.main import app, service
+from pydantic import BaseModel
+from webapp.main import app, create_app, service
 
 client = TestClient(app)
+
+
+@dataclass(frozen=True)
+class _DataclassExtensionResult:
+    """Structured dataclass result for API transport regression tests."""
+
+    total_hours: float
+    recommendation_count: int
+
+
+class _PydanticExtensionResult(BaseModel):
+    """Structured Pydantic result for API transport regression tests."""
+
+    total_hours: float
+    recommendation_count: int
+
+
+class _OpaqueExtensionResult:
+    """Stable repr-only result used to verify fallback warnings."""
+
+    def __init__(self, total_hours: float) -> None:
+        self.total_hours = total_hours
+
+    def __repr__(self) -> str:
+        return f"OpaqueExtensionResult(total_hours={self.total_hours})"
+
+
+class _StructuredResultRuntime:
+    """Tiny deterministic runtime used to verify generic JSON transport."""
+
+    manifest: ExtensionManifest
+
+    def __init__(self, manifest: ExtensionManifest, *, result_kind: str) -> None:
+        self.manifest = manifest
+        self._result_kind = result_kind
+
+    def validate_draft(self, draft: dict[str, object]) -> dict[str, list[str]]:
+        payload = draft.get("input")
+        if not isinstance(payload, dict):
+            return {"input": ["stage is empty"]}
+        hours = payload.get("hours")
+        if not isinstance(hours, (int, float)) or float(hours) <= 0:
+            return {"input": ["input.hours должно быть числом > 0."]}
+        return {"input": []}
+
+    def build_runtime_input(self, draft: dict[str, object]) -> object:
+        payload = draft["input"]
+        assert isinstance(payload, dict)
+        return {"hours": float(payload["hours"])}
+
+    def run(self, runtime_input: object) -> object:
+        assert isinstance(runtime_input, dict)
+        hours = float(runtime_input["hours"])
+        if self._result_kind == "dataclass":
+            return _DataclassExtensionResult(
+                total_hours=hours,
+                recommendation_count=1,
+            )
+        if self._result_kind == "pydantic":
+            return _PydanticExtensionResult(
+                total_hours=hours,
+                recommendation_count=1,
+            )
+        if self._result_kind == "opaque":
+            return _OpaqueExtensionResult(total_hours=hours)
+        raise AssertionError(f"Unknown result kind: {self._result_kind}")
+
+    def fallback_explain(self, result: object) -> str:
+        return "Structured extension result calculated."
+
+    def build_llm_explain_prompt(self, result: object) -> str:
+        return f"Explain: {result!r}"
+
+    def build_result_sections(self, result: object) -> list[ExtensionResultSection]:
+        return [
+            ExtensionResultSection(
+                section_id="structured-summary",
+                title="Structured summary",
+                blocks=[SummaryBlock(text="Structured result is available.")],
+            )
+        ]
+
+    def build_teaching_hints(self, draft: dict[str, object]) -> list[dict[str, object]]:
+        del draft
+        return []
+
+    def build_nl_semantics(self) -> dict[str, object]:
+        return {"supported": False}
+
+
+class _StructuredResultProvider:
+    """Preset-capable provider for dataclass/Pydantic transport regression tests."""
+
+    def __init__(self, *, alias: str, result_kind: str) -> None:
+        self._alias = alias
+        self._result_kind = result_kind
+
+    def get_manifest(self) -> ExtensionManifest:
+        return ExtensionManifest(
+            alias=self._alias,
+            title=f"{self._alias} demo",
+            description="Regression-test extension for structured result transport.",
+            version="0.1.0",
+            default_preset="demo",
+            stage_graph=[StageSpec(stage_id="input", label="Input")],
+        )
+
+    def create_runtime(self) -> _StructuredResultRuntime:
+        return _StructuredResultRuntime(self.get_manifest(), result_kind=self._result_kind)
+
+    def load_preset(self, preset_ref: str) -> dict[str, dict[str, Any]]:
+        if preset_ref != "demo":
+            raise ValueError(f"Unsupported preset: {preset_ref}")
+        return {"input": {"hours": 8}}
+
+
+def _client_with_extension_provider(provider: object) -> TestClient:
+    """Creates an isolated TestClient with one additional extension provider."""
+    manifest = provider.get_manifest()
+    registry = ExtensionRegistry(
+        [
+            DiscoveredExtension(
+                alias=manifest.alias,
+                manifest=manifest,
+                provider=provider,
+                entry_point_name=manifest.alias,
+                module=provider.__class__.__module__,
+                source=f"test:{manifest.alias}",
+            )
+        ]
+    )
+    return TestClient(create_app(extension_registry=registry))
 
 
 def test_api_chat_turn_success(monkeypatch) -> None:
@@ -629,6 +772,163 @@ def test_api_can_start_new_session_with_sample_extension() -> None:
     assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
     assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
     assert payload["session"]["extension_result_sections"][2]["blocks"][0]["rows"][0][0] == "Math"
+
+
+def test_api_can_load_sample_extension_default_preset_and_run() -> None:
+    """Проверяет честный preset path для non-default extension через JSON API."""
+    preset_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    preset_payload = preset_response.json()
+    session_id = preset_payload["session"]["session_id"]
+
+    assert preset_payload["session"]["extension_alias"] == "study_planner"
+    assert preset_payload["session"]["extension_state"]["draft"]["courses"]["names"] == [
+        "Math",
+        "ML",
+        "Databases",
+    ]
+    assert "Built-in preset `demo` загружен" in preset_payload["assistant_message"]
+
+    run_response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "run",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+
+    assert payload["extension_state"]["result"]["total_available_hours"] == 48.0
+    assert payload["session"]["extension_result"]["total_required_hours"] == 72.0
+    assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
+
+
+def test_api_serializes_dataclass_extension_results_in_turn_and_session_payloads() -> None:
+    """Проверяет round-trip dataclass result через generic extension transport."""
+    local_client = _client_with_extension_provider(
+        _StructuredResultProvider(alias="dataclass_demo", result_kind="dataclass")
+    )
+    preset_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "dataclass_demo",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    run_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "dataclass_demo",
+            "message": "run",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+
+    assert payload["extension_state"]["result"] == {
+        "total_hours": 8.0,
+        "recommendation_count": 1,
+    }
+    assert "repr" not in payload["extension_state"]["result"]
+
+    session_response = local_client.get(f"/api/session/{session_id}")
+    assert session_response.status_code == 200
+    assert session_response.json()["extension_result"] == {
+        "total_hours": 8.0,
+        "recommendation_count": 1,
+    }
+
+
+def test_api_serializes_pydantic_extension_results_in_turn_and_session_payloads() -> None:
+    """Проверяет round-trip Pydantic result через generic extension transport."""
+    local_client = _client_with_extension_provider(
+        _StructuredResultProvider(alias="pydantic_demo", result_kind="pydantic")
+    )
+    preset_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "pydantic_demo",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    run_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "pydantic_demo",
+            "message": "run",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+
+    assert payload["session"]["extension_result"] == {
+        "total_hours": 8.0,
+        "recommendation_count": 1,
+    }
+
+    session_response = local_client.get(f"/api/session/{session_id}")
+    assert session_response.status_code == 200
+    assert session_response.json()["extension_state"]["result"] == {
+        "total_hours": 8.0,
+        "recommendation_count": 1,
+    }
+
+
+def test_api_falls_back_to_repr_with_warning_for_opaque_extension_results() -> None:
+    """Проверяет безопасную деградацию для не-JSON-serializable extension result."""
+    local_client = _client_with_extension_provider(
+        _StructuredResultProvider(alias="opaque_demo", result_kind="opaque")
+    )
+    preset_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "opaque_demo",
+            "message": "load preset demo",
+        },
+    )
+    assert preset_response.status_code == 200
+    session_id = preset_response.json()["session"]["session_id"]
+
+    run_response = local_client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "opaque_demo",
+            "message": "run",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+
+    assert payload["session"]["extension_result"] == {
+        "repr": "OpaqueExtensionResult(total_hours=8.0)"
+    }
+    assert payload["session"]["warnings"]
+    assert "not JSON-serializable" in " ".join(payload["session"]["warnings"])
 
 
 def test_api_rejects_extension_switch_in_nonempty_session_until_reset() -> None:

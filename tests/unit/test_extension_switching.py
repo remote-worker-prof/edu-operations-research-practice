@@ -104,6 +104,21 @@ def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:
     assert sections[2].blocks[0].rows[0][0] == "Math"
 
 
+def test_sample_extension_provider_exposes_working_builtin_demo_preset() -> None:
+    """Проверяет, что sample extension действительно умеет load preset demo."""
+    provider = StudyPlannerExtensionProvider()
+    preset = provider.load_preset("demo")
+    runtime = provider.create_runtime()
+
+    assert runtime.validate_draft(preset) == {
+        "courses": [],
+        "time_budget": [],
+        "priorities": [],
+    }
+    assert preset["courses"]["names"] == ["Math", "ML", "Databases"]
+    assert preset["time_budget"]["weeks"] == 4
+
+
 def test_session_is_empty_after_reset_and_switch_ready_state() -> None:
     """Проверяет политику: пустая сессия может быть переключена на другой extension."""
     session = AgentSession()
