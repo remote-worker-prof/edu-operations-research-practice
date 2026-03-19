@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from agent_core.default_or_extension import DefaultORExtensionProvider
-from agent_core.extension_commands import build_stage_alias_map, parse_extension_command
+from agent_core.extension_commands import (
+    build_field_alias_map,
+    build_stage_alias_map,
+    parse_extension_command,
+)
 from agent_core.extension_flow import (
     manifest_for_alias,
     reset_session_for_extension,
@@ -121,6 +125,64 @@ def test_generic_parser_supports_multiword_stage_labels_in_edit_json_and_set() -
     assert set_en.patch is not None
     assert set_en.patch.path == "weeks"
     assert set_en.patch.value == 5
+
+
+def test_sample_manifest_field_aliases_are_canonicalized_in_set_json_and_raw_json() -> None:
+    """Проверяет canonicalization alias paths для sample extension."""
+    manifest = StudyPlannerExtensionProvider().get_manifest()
+    field_aliases = build_field_alias_map(manifest, "time_budget")
+
+    assert field_aliases["hours_per_week"] == "weekly_hours"
+    assert field_aliases["study_weeks"] == "weeks"
+
+    set_alias = parse_extension_command(
+        message="set time budget.hours_per_week 12",
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert set_alias.action == "set_field"
+    assert set_alias.patch is not None
+    assert set_alias.patch.path == "weekly_hours"
+    assert set_alias.patch.value == 12
+
+    json_alias = parse_extension_command(
+        message=('json courses {"course_names":["Math","ML"],"hours_needed":[30,24]}'),
+        current_stage=None,
+        manifest=manifest,
+    )
+    assert json_alias.action == "stage_json"
+    assert json_alias.patch is not None
+    assert json_alias.patch.payload == {
+        "names": ["Math", "ML"],
+        "hours_required": [30, 24],
+    }
+
+    raw_json_alias = parse_extension_command(
+        message='{"hours_per_week":12,"study_weeks":4}',
+        current_stage="time_budget",
+        manifest=manifest,
+    )
+    assert raw_json_alias.action == "stage_json"
+    assert raw_json_alias.patch is not None
+    assert raw_json_alias.patch.payload == {
+        "weekly_hours": 12,
+        "weeks": 4,
+    }
+
+
+def test_parser_rejects_conflicting_alias_and_canonical_values_in_same_json_payload() -> None:
+    """Проверяет явный отказ на конфликт alias/canonical key в одном payload."""
+    manifest = StudyPlannerExtensionProvider().get_manifest()
+
+    result = parse_extension_command(
+        message='json time budget {"weekly_hours":12,"hours_per_week":10,"weeks":4}',
+        current_stage=None,
+        manifest=manifest,
+    )
+
+    assert result.action == "invalid"
+    assert result.errors
+    assert "Конфликт alias-ключей" in result.errors[0]
 
 
 def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:

@@ -856,6 +856,85 @@ def test_api_sample_extension_accepts_multiword_stage_labels_in_json_and_set() -
     assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
 
 
+def test_api_sample_extension_canonicalizes_field_aliases_in_json_and_raw_json() -> None:
+    """Проверяет field alias canonicalization через JSON API для sample extension."""
+    start_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session"]["session_id"]
+
+    commands = [
+        'json courses {"course_names":["Math","ML","Databases"],"hours_needed":[30,24,18]}',
+        "edit time budget",
+        '{"hours_per_week":12,"study_weeks":4}',
+        'json priorities {"priority_weights":[0.5,0.3,0.2]}',
+        "run",
+    ]
+
+    payload = None
+    for command in commands:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "local_default",
+                "extension_alias": "study_planner",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+    assert payload is not None
+    assert payload["session"]["extension_state"]["draft"]["courses"] == {
+        "names": ["Math", "ML", "Databases"],
+        "hours_required": [30, 24, 18],
+    }
+    assert payload["session"]["extension_state"]["draft"]["time_budget"] == {
+        "weekly_hours": 12,
+        "weeks": 4,
+    }
+    assert payload["session"]["extension_state"]["draft"]["priorities"] == {
+        "weights": [0.5, 0.3, 0.2]
+    }
+    assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
+
+
+def test_api_rejects_conflicting_field_alias_values_in_stage_json() -> None:
+    """Проверяет, что alias/canonical collisions не проходят тихо через API."""
+    start_response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": "start",
+        },
+    )
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session"]["session_id"]
+
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "session_id": session_id,
+            "model_alias": "local_default",
+            "extension_alias": "study_planner",
+            "message": 'json time budget {"weekly_hours":12,"hours_per_week":10,"weeks":4}',
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["session"]["extension_state"]["draft"] == {}
+    assert "Конфликт alias-ключей" in payload["assistant_message"]
+
+
 def test_api_serializes_dataclass_extension_results_in_turn_and_session_payloads() -> None:
     """Проверяет round-trip dataclass result через generic extension transport."""
     local_client = _client_with_extension_provider(

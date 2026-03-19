@@ -818,6 +818,31 @@ def test_sample_extension_multiword_stage_labels_work_in_browser_flow(chat_page)
 
 
 @pytest.mark.extensions_e2e
+def test_sample_extension_field_aliases_work_in_browser_flow(chat_page) -> None:
+    """Проверяет field alias canonicalization в живом browser flow."""
+    chat_page.select_extension("study_planner")
+    chat_page.send_message("start")
+    chat_page.send_message(
+        'json courses {"course_names":["Math","ML","Databases"],"hours_needed":[30,24,18]}'
+    )
+    chat_page.send_message("edit time budget")
+    chat_page.send_message('{"hours_per_week":12,"study_weeks":4}')
+    chat_page.send_message('json priorities {"priority_weights":[0.5,0.3,0.2]}')
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("show input")
+    assistant_text = chat_page.last_chat_message(role="assistant")
+    assert '"weekly_hours": 12' in assistant_text
+    assert '"weeks": 4' in assistant_text
+    assert '"hours_per_week"' not in assistant_text
+    assert '"priority_weights"' not in assistant_text
+
+    chat_page.send_message("run")
+    _assert_study_planner_results_rendered(chat_page)
+
+
+@pytest.mark.extensions_e2e
 def test_extension_switch_is_blocked_until_reset(chat_page) -> None:
     """Проверяет session policy: switch запрещён в непустой сессии без reset."""
     chat_page.select_model("local_default")

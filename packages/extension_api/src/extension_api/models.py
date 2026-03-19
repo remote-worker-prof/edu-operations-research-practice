@@ -11,6 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
+def _normalize_token(value: str) -> str:
+    """Normalize alias/path tokens for case-insensitive lookup and validation."""
+    return value.strip().lower()
+
+
 class FieldSpec(BaseModel):
     """Description of one logical input field inside an extension stage."""
 
@@ -192,6 +197,23 @@ class ExtensionManifest(BaseModel):
 
         if len(visited) != len(stage_map):
             raise ValueError("stage_graph must be acyclic")
+
+        for stage in self.stage_graph:
+            normalized_field_paths: set[str] = set()
+            for field in stage.field_specs:
+                normalized = _normalize_token(field.field_path)
+                if not normalized:
+                    raise ValueError(
+                        f"field_path in stage {stage.stage_id} must not be empty or whitespace"
+                    )
+                if normalized in normalized_field_paths:
+                    raise ValueError(
+                        f"duplicate field_path {field.field_path!r} in stage {stage.stage_id}"
+                    )
+                normalized_field_paths.add(normalized)
+
+        for stage in self.stage_graph:
+            self.field_alias_map(stage.stage_id)
         return self
 
     def stage_ids(self) -> list[str]:
@@ -226,3 +248,105 @@ class ExtensionManifest(BaseModel):
                 if inbound[dependent] == 0:
                     queue.append(dependent)
         return order
+
+    def canonical_field_paths(self, stage_id: str) -> dict[str, str]:
+        """Return normalized -> canonical field paths for one stage."""
+        stage = self.stage_map()[stage_id]
+        return {
+            _normalize_token(field.field_path): field.field_path.strip()
+            for field in stage.field_specs
+        }
+
+    def _resolve_manifest_field_alias_target(self, target: str) -> tuple[str, str]:
+        """Resolve one manifest-level alias target to (stage_id, canonical_field_path)."""
+        normalized_target = target.strip()
+        if not normalized_target:
+            raise ValueError("field_aliases keys must not be empty")
+
+        if "." in normalized_target:
+            stage_id, raw_field_path = normalized_target.split(".", maxsplit=1)
+            stage = self.stage_map().get(stage_id)
+            if stage is None:
+                raise ValueError(
+                    f"field_aliases target {target!r} references unknown stage {stage_id!r}"
+                )
+            canonical_paths = self.canonical_field_paths(stage_id)
+            canonical = canonical_paths.get(_normalize_token(raw_field_path))
+            if canonical is None:
+                raise ValueError(
+                    f"field_aliases target {target!r} references unknown field "
+                    f"{raw_field_path!r} in stage {stage_id!r}"
+                )
+            return stage_id, canonical
+
+        normalized_lookup = _normalize_token(normalized_target)
+        matches: list[tuple[str, str]] = []
+        for stage in self.stage_graph:
+            canonical = self.canonical_field_paths(stage.stage_id).get(normalized_lookup)
+            if canonical is not None:
+                matches.append((stage.stage_id, canonical))
+
+        if not matches:
+            raise ValueError(
+                f"field_aliases target {target!r} does not match any declared field_path"
+            )
+        if len(matches) > 1:
+            matching_stages = ", ".join(stage_id for stage_id, _ in matches)
+            raise ValueError(
+                f"field_aliases target {target!r} is ambiguous across stages: "
+                f"{matching_stages}. Use '<stage_id>.<field_path>' instead."
+            )
+        return matches[0]
+
+    def field_alias_map(self, stage_id: str) -> dict[str, str]:
+        """Return normalized alias -> canonical field path mapping for one stage."""
+        if stage_id not in self.stage_map():
+            raise KeyError(stage_id)
+
+        canonical_paths = self.canonical_field_paths(stage_id)
+        alias_map: dict[str, str] = {}
+
+        def register_alias(alias: str, canonical_field_path: str, *, source: str) -> None:
+            normalized_alias = _normalize_token(alias)
+            if not normalized_alias:
+                raise ValueError(
+                    f"empty field alias in stage {stage_id} from {source} is not allowed"
+                )
+            canonical_conflict = canonical_paths.get(normalized_alias)
+            if canonical_conflict is not None and canonical_conflict != canonical_field_path:
+                raise ValueError(
+                    f"field alias {alias!r} in stage {stage_id} from {source} conflicts with "
+                    f"canonical field path {canonical_conflict!r}"
+                )
+            existing = alias_map.get(normalized_alias)
+            if existing is not None and existing != canonical_field_path:
+                raise ValueError(
+                    f"field alias {alias!r} in stage {stage_id} is ambiguous: "
+                    f"{existing!r} vs {canonical_field_path!r}"
+                )
+            alias_map[normalized_alias] = canonical_field_path
+
+        stage = self.stage_map()[stage_id]
+        for field in stage.field_specs:
+            canonical_field_path = canonical_paths[_normalize_token(field.field_path)]
+            for alias in field.aliases:
+                register_alias(
+                    alias,
+                    canonical_field_path,
+                    source=f"FieldSpec({field.field_path})",
+                )
+
+        for target, aliases in self.field_aliases.items():
+            target_stage_id, canonical_field_path = self._resolve_manifest_field_alias_target(
+                target
+            )
+            if target_stage_id != stage_id:
+                continue
+            for alias in aliases:
+                register_alias(
+                    alias,
+                    canonical_field_path,
+                    source=f"field_aliases[{target!r}]",
+                )
+
+        return alias_map

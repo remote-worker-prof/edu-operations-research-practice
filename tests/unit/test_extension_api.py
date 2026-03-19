@@ -11,6 +11,7 @@ from extension_api import (
     ExtensionManifest,
     ExtensionRegistry,
     ExtensionResultSection,
+    FieldSpec,
     InvalidExtensionProviderError,
     StageSpec,
 )
@@ -249,6 +250,55 @@ def test_extension_registry_exposes_builtin_preset_loader_when_provider_supports
 
     assert preset["courses"]["names"] == ["Math"]
     assert preset["time_budget"]["weeks"] == 2
+
+
+def test_extension_manifest_rejects_colliding_field_aliases() -> None:
+    """Проверяет ранний отказ, если alias конфликтует с другим canonical path."""
+    with pytest.raises(ValueError, match="conflicts with canonical field path"):
+        ExtensionManifest(
+            alias="collision_demo",
+            title="Collision Demo",
+            description="Invalid field alias mapping",
+            version="0.1.0",
+            stage_graph=[
+                StageSpec(
+                    stage_id="time_budget",
+                    label="Time Budget",
+                    field_specs=[
+                        FieldSpec(
+                            field_path="weekly_hours",
+                            label="Weekly hours",
+                            aliases=["weeks"],
+                        ),
+                        FieldSpec(field_path="weeks", label="Weeks"),
+                    ],
+                )
+            ],
+        )
+
+
+def test_extension_manifest_rejects_ambiguous_manifest_level_field_alias_target() -> None:
+    """Проверяет отказ на ambiguous manifest.field_aliases key без stage prefix."""
+    with pytest.raises(ValueError, match="ambiguous across stages"):
+        ExtensionManifest(
+            alias="ambiguous_alias_demo",
+            title="Ambiguous Alias Demo",
+            description="Invalid manifest-level field alias target",
+            version="0.1.0",
+            stage_graph=[
+                StageSpec(
+                    stage_id="shipment",
+                    label="Shipment",
+                    field_specs=[FieldSpec(field_path="cost_matrix", label="Cost matrix")],
+                ),
+                StageSpec(
+                    stage_id="assignment",
+                    label="Assignment",
+                    field_specs=[FieldSpec(field_path="cost_matrix", label="Cost matrix")],
+                ),
+            ],
+            field_aliases={"cost_matrix": ["matrix"]},
+        )
 
 
 def test_create_app_attaches_extension_registry_to_app_state() -> None:

@@ -38,6 +38,7 @@ _MANIFEST = ExtensionManifest(
                     field_path="names",
                     label="Названия курсов",
                     description="Список курсов, которые студент хочет изучать.",
+                    aliases=["course_list"],
                     examples=['["Math","ML","Databases"]'],
                 ),
                 FieldSpec(
@@ -45,6 +46,7 @@ _MANIFEST = ExtensionManifest(
                     label="Требуемые часы",
                     description="Сколько часов нужно на каждый курс.",
                     value_type="list[number]",
+                    aliases=["hours_needed"],
                     examples=["[30,24,18]"],
                 ),
             ],
@@ -60,6 +62,7 @@ _MANIFEST = ExtensionManifest(
                     label="Часов в неделю",
                     description="Сколько часов в неделю студент может реально выделить.",
                     value_type="number",
+                    aliases=["weekly"],
                     examples=["12"],
                 ),
                 FieldSpec(
@@ -67,6 +70,7 @@ _MANIFEST = ExtensionManifest(
                     label="Количество недель",
                     description="На сколько недель строится учебный план.",
                     value_type="number",
+                    aliases=["study_weeks"],
                     examples=["4"],
                 ),
             ],
@@ -85,11 +89,19 @@ _MANIFEST = ExtensionManifest(
                         "Относительная важность каждого курса в том же порядке, что и names."
                     ),
                     value_type="list[number]",
+                    aliases=["weights_list"],
                     examples=["[0.5,0.3,0.2]"],
                 ),
             ],
         ),
     ],
+    field_aliases={
+        "courses.names": ["course_names"],
+        "courses.hours_required": ["required_hours"],
+        "time_budget.weekly_hours": ["hours_per_week"],
+        "time_budget.weeks": ["num_weeks"],
+        "priorities.weights": ["priority_weights"],
+    },
     stage_aliases={
         "courses": ["course", "courses", "курс", "курсы"],
         "time_budget": ["time_budget", "time budget", "time", "budget", "время", "бюджет"],

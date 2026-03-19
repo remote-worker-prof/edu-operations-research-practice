@@ -28,6 +28,11 @@ def build_stage_alias_map(manifest: ExtensionManifest) -> dict[str, str]:
     return alias_map
 
 
+def build_field_alias_map(manifest: ExtensionManifest, stage_id: str) -> dict[str, str]:
+    """Builds a normalized alias -> canonical field path map for one stage."""
+    return manifest.field_alias_map(stage_id)
+
+
 def _resolve_stage(raw: str, alias_map: dict[str, str]) -> str | None:
     """Resolves one stage alias to a canonical stage_id."""
     return alias_map.get(raw.strip().lower())
@@ -99,6 +104,75 @@ def _parse_scalar(value_text: str) -> Any:
     return value_text
 
 
+def _set_nested(payload: dict[str, Any], path: str, value: Any) -> None:
+    """Set one dotted path in a nested dictionary payload."""
+    cursor = payload
+    parts = [part for part in path.split(".") if part]
+    if not parts:
+        return
+    for key in parts[:-1]:
+        existing = cursor.get(key)
+        if not isinstance(existing, dict):
+            existing = {}
+            cursor[key] = existing
+        cursor = existing
+    cursor[parts[-1]] = value
+
+
+def _flatten_payload(payload: dict[str, Any], *, prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested stage payload into dotted field paths."""
+    flattened: dict[str, Any] = {}
+    for key, value in payload.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            flattened.update(_flatten_payload(value, prefix=path))
+        else:
+            flattened[path] = value
+    return flattened
+
+
+def _canonical_field_path(
+    *,
+    manifest: ExtensionManifest,
+    stage_id: str,
+    raw_path: str,
+) -> str:
+    """Return canonical field path for one stage-local path or alias."""
+    normalized = raw_path.strip().lower()
+    canonical_paths = manifest.canonical_field_paths(stage_id)
+    if normalized in canonical_paths:
+        return canonical_paths[normalized]
+    return build_field_alias_map(manifest, stage_id).get(normalized, raw_path.strip())
+
+
+def _canonicalize_stage_payload(
+    *,
+    manifest: ExtensionManifest,
+    stage_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Rewrite alias keys in one stage JSON payload to canonical field paths."""
+    flattened = _flatten_payload(payload)
+    canonicalized_flat: dict[str, Any] = {}
+    for raw_path, value in flattened.items():
+        canonical_path = _canonical_field_path(
+            manifest=manifest,
+            stage_id=stage_id,
+            raw_path=raw_path,
+        )
+        if canonical_path in canonicalized_flat and canonicalized_flat[canonical_path] != value:
+            raise ValueError(
+                f"Конфликт alias-ключей для поля `{stage_id}.{canonical_path}`: "
+                "получены разные значения."
+            )
+        canonicalized_flat[canonical_path] = value
+
+    normalized_payload: dict[str, Any] = {}
+    for canonical_path, value in canonicalized_flat.items():
+        _set_nested(normalized_payload, canonical_path, value)
+    return normalized_payload
+
+
 def parse_extension_command(
     *,
     message: str,
@@ -151,6 +225,13 @@ def parse_extension_command(
             payload = json.loads(payload_text)
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
+            payload = _canonicalize_stage_payload(
+                manifest=manifest,
+                stage_id=stage,
+                payload=payload,
+            )
+        except ValueError as exc:
+            return CommandResult(action="invalid", errors=[str(exc)])
         except json.JSONDecodeError as exc:
             return CommandResult(action="invalid", errors=[f"Некорректный JSON: {exc}"])
         return CommandResult(
@@ -172,6 +253,7 @@ def parse_extension_command(
                 errors=["Формат: set <stage>.<field_path> <value>"],
             )
         value = _parse_scalar(value_text)
+        path = _canonical_field_path(manifest=manifest, stage_id=stage, raw_path=path)
         return CommandResult(
             action="set_field",
             stage=stage,
@@ -188,6 +270,13 @@ def parse_extension_command(
             payload = json.loads(text)
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
+            payload = _canonicalize_stage_payload(
+                manifest=manifest,
+                stage_id=current_stage,
+                payload=payload,
+            )
+        except ValueError as exc:
+            return CommandResult(action="invalid", errors=[str(exc)])
         except json.JSONDecodeError as exc:
             return CommandResult(action="invalid", errors=[f"Некорректный JSON: {exc}"])
         return CommandResult(
