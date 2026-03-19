@@ -12,6 +12,7 @@ from agent_core.extension_flow import (
     manifest_for_alias,
     reset_session_for_extension,
     session_is_empty,
+    sync_default_or_compatibility_state,
 )
 from agent_core.models import AgentSession, TurnResult
 from extension_api import DiscoveredExtension, ExtensionRegistry
@@ -257,14 +258,44 @@ def test_agent_session_and_turn_result_expose_generic_extension_state_snapshot()
         extension_alias="study_planner",
         extension_draft={"courses": {"names": ["Math"], "hours_required": [30]}},
         extension_result={"total_available_hours": 48.0},
+        extension_stage_statuses=[
+            {
+                "stage_id": "courses",
+                "label": "Курсы",
+                "ready": True,
+                "current": True,
+            }
+        ],
     )
 
     assert session.extension_state.alias == "study_planner"
     assert session.extension_state.draft["courses"]["names"] == ["Math"]
     assert session.extension_state.result == {"total_available_hours": 48.0}
+    assert session.extension_state.stage_statuses[0].stage_id == "courses"
+    assert session.extension_state.stage_statuses[0].current is True
 
     turn = TurnResult(session=session, assistant_message="ok")
 
     assert turn.extension_state.alias == "study_planner"
     assert turn.extension_state.draft == session.extension_draft
     assert turn.model_dump(mode="json")["extension_state"]["alias"] == "study_planner"
+
+
+def test_sync_default_or_compatibility_state_populates_generic_mirrors() -> None:
+    """Проверяет, что legacy default_or session получает честный generic snapshot."""
+    registry = _registry_with_default_and_sample()
+    session = AgentSession()
+    session.scenario_draft.production = {"products": ["A"]}
+
+    sync_default_or_compatibility_state(session=session, registry=registry)
+
+    assert session.extension_alias == "default_or"
+    assert session.extension_state.draft["production"] == {"products": ["A"]}
+    assert [item.stage_id for item in session.extension_state.stage_statuses] == [
+        "production",
+        "shipment",
+        "assignment",
+        "routing",
+    ]
+    assert session.extension_state.stage_statuses[0].current is True
+    assert session.extension_state.stage_statuses[0].ready is False

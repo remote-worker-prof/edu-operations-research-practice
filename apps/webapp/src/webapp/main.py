@@ -50,14 +50,15 @@ def _manifest_context(
     registry = request.app.state.extension_registry
     manifest = manifest_for_alias(registry, session.extension_alias)
     label_map = stage_label_map_for_manifest(manifest)
+    stage_status_map = {row.stage_id: row for row in session.extension_stage_statuses}
     stage_rows = []
     for stage_id in stage_order_for_manifest(manifest):
-        errors = session.validation_errors_by_stage.get(stage_id, [])
+        status = stage_status_map.get(stage_id)
         stage_rows.append(
             {
                 "stage_id": stage_id,
                 "label": label_map.get(stage_id, stage_id),
-                "ready": not errors,
+                "ready": status.ready if status is not None else False,
             }
         )
     return label_map, stage_rows, manifest
@@ -313,6 +314,7 @@ def create_app(
     resolved_service = service or AgentService(extension_registry=extension_registry)
     app.state.service = resolved_service
     app.state.extension_registry = app.state.service.extension_registry
+    app.state.extension_startup_warnings = app.state.service.extension_startup_warnings
     app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
     app.include_router(router)
     return app

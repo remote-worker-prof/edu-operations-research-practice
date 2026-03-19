@@ -24,10 +24,9 @@
       <strong>Прогресс stage-by-stage</strong>
       <div class="stack">
         {% for row in stage_status_rows %}
-          {% set errors = session.validation_errors_by_stage.get(row.stage_id, []) %}
           <div class="kv" data-testid="stage-status-{{ row.stage_id }}">
             <span>{{ row.label }}</span>
-            <strong data-testid="stage-status-value-{{ row.stage_id }}">{{ "готов" if not errors else "не готов" }}</strong>
+            <strong data-testid="stage-status-value-{{ row.stage_id }}">{{ "готов" if row.ready else "не готов" }}</strong>
           </div>
         {% endfor %}
       </div>

@@ -22,8 +22,12 @@ from agent_core.extension_flow import (
     manifest_for_alias,
     reset_session_for_extension,
     session_is_empty,
+    sync_default_or_compatibility_state,
 )
-from agent_core.extensions import compose_extension_registry, load_extension_registry
+from agent_core.extensions import (
+    compose_extension_registry,
+    tolerant_discovery_report,
+)
 from agent_core.llm import LLMClient
 from agent_core.models import AgentSession, ChatMessage, ChatTurnRequest, TurnResult
 from agent_core.session_store import InMemorySessionStore
@@ -58,11 +62,13 @@ class AgentService:
         """
         self._store = session_store or InMemorySessionStore()
         self._llm_client = llm_client or LLMClient()
-        self._extension_registry = (
-            compose_extension_registry(extension_registry)
-            if extension_registry is not None
-            else load_extension_registry()
-        )
+        if extension_registry is not None:
+            self._extension_registry = compose_extension_registry(extension_registry)
+            self._extension_startup_warnings: list[str] = []
+        else:
+            discovery_report = tolerant_discovery_report()
+            self._extension_registry = discovery_report.registry
+            self._extension_startup_warnings = list(discovery_report.warnings)
         preset_path = scenario_path or default_scenario_path()
         self._scenario_assembler = ScenarioAssembler()
         self._preset_loader = ScenarioPresetLoader(preset_path)
@@ -98,10 +104,16 @@ class AgentService:
         """Возвращает startup-регистр обнаруженных extension-пакетов."""
         return self._extension_registry
 
+    @property
+    def extension_startup_warnings(self) -> list[str]:
+        """Returns quarantine warnings collected during startup extension discovery."""
+        return list(self._extension_startup_warnings)
+
     def create_session(self, model_alias: str = DEFAULT_MODEL_ALIAS) -> AgentSession:
         """Создаёт новую пользовательскую сессию и сохраняет её в store."""
         session = self._store.create()
         session.model_alias = model_alias
+        sync_default_or_compatibility_state(session=session, registry=self._extension_registry)
         self._store.save(session)
         return session
 
@@ -172,6 +184,10 @@ class AgentService:
             }
         )
         updated_session = output_state["session"]
+        sync_default_or_compatibility_state(
+            session=updated_session,
+            registry=self._extension_registry,
+        )
         self._store.save(updated_session)
 
         return TurnResult(

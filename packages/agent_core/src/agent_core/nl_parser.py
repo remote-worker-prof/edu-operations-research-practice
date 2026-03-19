@@ -13,9 +13,10 @@ import json
 import re
 from typing import Any, cast
 
+from agent_core.default_or_contract import DefaultORStageName
 from agent_core.exceptions import ModelProviderError, ModelUnavailableError
 from agent_core.llm import LLMClient
-from agent_core.models import CandidatePatch, NLParseResult, StageName, TeachingHint
+from agent_core.models import CandidatePatch, NLParseResult, TeachingHint
 
 _COMMAND_PREFIXES = (
     "start",
@@ -44,14 +45,14 @@ _HELP_MARKERS = ("help", "помощь", "что дальше", "как ввод
 _CONFIRM_MARKERS = ("да", "подтверждаю", "подтвердить", "ок", "согласен")
 _REJECT_MARKERS = ("нет", "отмена", "не подтверждаю", "отклонить", "не так")
 
-_STAGE_ALIASES: dict[StageName, tuple[str, ...]] = {
+_STAGE_ALIASES: dict[DefaultORStageName, tuple[str, ...]] = {
     "production": ("production", "prod", "производство", "выпуск"),
     "shipment": ("shipment", "ship", "отгрузка", "доставка"),
     "assignment": ("assignment", "assign", "назначение"),
     "routing": ("routing", "route", "маршрутизация", "маршруты"),
 }
 
-_FIELD_ALIASES: dict[StageName, dict[str, tuple[str, ...]]] = {
+_FIELD_ALIASES: dict[DefaultORStageName, dict[str, tuple[str, ...]]] = {
     "production": {
         "products": ("products", "продукты"),
         "profits": ("profits", "прибыль"),
@@ -81,7 +82,7 @@ _FIELD_ALIASES: dict[StageName, dict[str, tuple[str, ...]]] = {
     },
 }
 
-_HINTS: dict[tuple[StageName, str], TeachingHint] = {
+_HINTS: dict[tuple[DefaultORStageName, str], TeachingHint] = {
     ("production", "profits"): TeachingHint(
         field="production.profits",
         meaning="Прибыль на единицу каждого продукта в LP-модели.",
@@ -126,7 +127,7 @@ def teaching_hints_for_patches(patches: list[CandidatePatch]) -> list[TeachingHi
 def parse_nl_turn(
     *,
     message: str,
-    current_stage: StageName | None,
+    current_stage: DefaultORStageName | None,
     llm_client: LLMClient | None = None,
     model_alias: str | None = None,
 ) -> NLParseResult:
@@ -205,7 +206,7 @@ def parse_nl_turn(
 
 def _build_patch_result(
     *,
-    stage: StageName,
+    stage: DefaultORStageName,
     source_text: str,
     patches: list[CandidatePatch],
     uncertainties: list[str],
@@ -234,7 +235,7 @@ def _needs_llm_fallback(result: NLParseResult) -> bool:
 def _try_llm_fallback(
     *,
     text: str,
-    stage: StageName,
+    stage: DefaultORStageName,
     llm_client: LLMClient | None,
     model_alias: str | None,
     deterministic_uncertainties: list[str],
@@ -366,7 +367,7 @@ def _try_llm_fallback_any_stage(
         normalized_stage = raw_stage.strip().lower()
         if normalized_stage not in _STAGE_ALIASES:
             return None
-        stage = cast(StageName, normalized_stage)
+        stage = cast(DefaultORStageName, normalized_stage)
         raw_patches = payload.get("patches", [])
         parsed_patches: list[CandidatePatch] = []
         if isinstance(raw_patches, list):
@@ -440,10 +441,10 @@ def _contains_marker(lower: str, markers: tuple[str, ...]) -> bool:
 def _resolve_stage(
     *,
     lower: str,
-    current_stage: StageName | None,
-) -> tuple[StageName | None, bool, list[str]]:
+    current_stage: DefaultORStageName | None,
+) -> tuple[DefaultORStageName | None, bool, list[str]]:
     """Определяет stage для реплики и возвращает возможные неопределённости."""
-    detected: list[StageName] = []
+    detected: list[DefaultORStageName] = []
     for stage, aliases in _STAGE_ALIASES.items():
         if any(re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", lower) for alias in aliases):
             detected.append(stage)
@@ -465,7 +466,7 @@ def _extract_patches_for_stage(
     *,
     text: str,
     lower: str,
-    stage: StageName,
+    stage: DefaultORStageName,
 ) -> tuple[list[CandidatePatch], list[str]]:
     """Извлекает candidate patches по полям выбранного stage."""
     patches: list[CandidatePatch] = []

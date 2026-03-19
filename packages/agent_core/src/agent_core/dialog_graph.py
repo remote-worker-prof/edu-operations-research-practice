@@ -12,35 +12,34 @@ from or_core.exceptions import ORPipelineError, ScenarioValidationError
 from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
+from agent_core.default_or_contract import DEFAULT_OR_STAGE_ORDER, DefaultORStageName
 from agent_core.explainer import explain_result_for_student
 from agent_core.input_parser import parse_user_command
 from agent_core.llm import LLMClient
 from agent_core.models import (
-    STAGE_ORDER,
     AgentSession,
     CandidatePatch,
     ChatMessage,
     CommandResult,
     NLParseResult,
-    StageName,
 )
 from agent_core.nl_parser import parse_nl_turn, teaching_hints_for_patches
 
-STAGE_LABELS: dict[StageName, str] = {
+STAGE_LABELS: dict[DefaultORStageName, str] = {
     "production": "Production",
     "shipment": "Shipment",
     "assignment": "Assignment",
     "routing": "Routing",
 }
 
-_STAGE_DRAFT_FIELDS: dict[StageName, str] = {
+_STAGE_DRAFT_FIELDS: dict[DefaultORStageName, str] = {
     "production": "production",
     "shipment": "shipment",
     "assignment": "assignment",
     "routing": "routing",
 }
 
-_STAGE_EXAMPLES: dict[StageName, str] = {
+_STAGE_EXAMPLES: dict[DefaultORStageName, str] = {
     "production": (
         '{"products":["A","B"],"profits":[40,30],'
         '"resource_matrix":[[2,1],[1,1.5]],"resource_limits":[240,180],'
@@ -108,25 +107,25 @@ def _add_user_message_node(state: DialogGraphState) -> DialogGraphState:
     return {"session": session}
 
 
-def _next_missing_stage(session: AgentSession) -> StageName | None:
-    """Возвращает первый незаполненный stage в порядке `STAGE_ORDER`."""
-    for stage in STAGE_ORDER:
+def _next_missing_stage(session: AgentSession) -> DefaultORStageName | None:
+    """Возвращает первый незаполненный stage в порядке legacy OR-stage order."""
+    for stage in DEFAULT_OR_STAGE_ORDER:
         if stage in session.missing_fields:
             return stage
     return None
 
 
-def _stage_prompt(stage: StageName) -> str:
+def _stage_prompt(stage: DefaultORStageName) -> str:
     """Формирует подсказку с примером JSON для выбранного stage."""
     return f"Заполните stage {STAGE_LABELS[stage]}. Пример: json {stage} {_STAGE_EXAMPLES[stage]}"
 
 
-def _apply_stage_payload(session: AgentSession, stage: StageName, payload: dict) -> None:
+def _apply_stage_payload(session: AgentSession, stage: DefaultORStageName, payload: dict) -> None:
     """Записывает payload в нужный раздел draft по имени stage."""
     setattr(session.scenario_draft, _STAGE_DRAFT_FIELDS[stage], payload)
 
 
-def _stage_payload_ref(session: AgentSession, stage: StageName) -> dict:
+def _stage_payload_ref(session: AgentSession, stage: DefaultORStageName) -> dict:
     """Возвращает текущий payload выбранного stage из draft."""
     return getattr(session.scenario_draft, _STAGE_DRAFT_FIELDS[stage])
 
@@ -154,7 +153,7 @@ def _recompute_collection_state(
     """Пересчитывает ошибки/готовность stage после изменения draft."""
     stage_errors = assembler.stage_errors(session.scenario_draft)
     session.validation_errors_by_stage = stage_errors
-    session.missing_fields = [stage for stage in STAGE_ORDER if stage_errors[stage]]
+    session.missing_fields = [stage for stage in DEFAULT_OR_STAGE_ORDER if stage_errors[stage]]
     session.collection_state.ready_to_run = not session.missing_fields
     if session.collection_state.current_stage is None or (
         session.collection_state.current_stage not in session.missing_fields

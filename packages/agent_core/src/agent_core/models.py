@@ -20,9 +20,6 @@ from pydantic import BaseModel, Field, computed_field
 from agent_core.config import DEFAULT_MODEL_ALIAS
 from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
 
-STAGE_ORDER = ["production", "shipment", "assignment", "routing"]
-StageName = Literal["production", "shipment", "assignment", "routing"]
-
 
 class ChatMessage(BaseModel):
     """Одна реплика в истории диалога.
@@ -43,7 +40,7 @@ class CollectionState(BaseModel):
 
     mode: Literal["wizard", "json", "nl"] = "wizard"
     phase: Literal["drafting", "awaiting_confirmation", "ready_to_run", "running"] = "drafting"
-    current_stage: str | None = "production"
+    current_stage: str | None = None
     ready_to_run: bool = False
 
 
@@ -114,6 +111,18 @@ class CommandResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class StageStatusSnapshot(BaseModel):
+    """Normalized stage readiness snapshot for manifest-driven and legacy flows."""
+
+    stage_id: str
+    label: str
+    depends_on: list[str] = Field(default_factory=list)
+    ready: bool = False
+    current: bool = False
+    missing: bool = False
+    errors: list[str] = Field(default_factory=list)
+
+
 class ExtensionStateSnapshot(BaseModel):
     """Generic extension-aware draft/result slot for session and turn contracts."""
 
@@ -121,6 +130,7 @@ class ExtensionStateSnapshot(BaseModel):
     draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
     result: Any | None = None
     result_sections: list[ExtensionResultSection] = Field(default_factory=list)
+    stage_statuses: list[StageStatusSnapshot] = Field(default_factory=list)
 
 
 class AgentSession(BaseModel):
@@ -139,6 +149,7 @@ class AgentSession(BaseModel):
     extension_draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
     extension_result: Any | None = None
     extension_result_sections: list[ExtensionResultSection] = Field(default_factory=list)
+    extension_stage_statuses: list[StageStatusSnapshot] = Field(default_factory=list)
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)
     confirmation_state: ConfirmationState = Field(default_factory=ConfirmationState)
@@ -164,6 +175,7 @@ class AgentSession(BaseModel):
             draft=self.extension_draft,
             result=self.extension_result,
             result_sections=self.extension_result_sections,
+            stage_statuses=self.extension_stage_statuses,
         )
 
 

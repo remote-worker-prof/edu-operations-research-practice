@@ -190,6 +190,11 @@ def test_api_chat_turn_success(monkeypatch) -> None:
     payload = response.json()
     assert payload["extension_state"]["alias"] == "default_or"
     assert payload["session"]["extension_state"]["alias"] == "default_or"
+    assert payload["session"]["extension_state"]["draft"]["production"]["products"] == ["A", "B"]
+    assert payload["extension_state"]["result"]["production"]["objective_value"] == 5000.0
+    assert payload["session"]["extension_result_sections"][0]["title"] == "Production"
+    assert payload["session"]["extension_state"]["stage_statuses"][0]["stage_id"] == "production"
+    assert payload["session"]["extension_state"]["stage_statuses"][0]["ready"] is True
     assert payload["session"]["or_result"] is not None
 
 

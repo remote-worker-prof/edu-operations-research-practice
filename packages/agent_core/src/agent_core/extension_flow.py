@@ -16,9 +16,12 @@ from extension_api import (
 from or_core.models import ScenarioDraft
 from pydantic import BaseModel
 
-from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
+from agent_core.default_or_extension import (
+    DEFAULT_OR_EXTENSION_ALIAS,
+    default_or_extension_draft_from_scenario_draft,
+)
 from agent_core.extension_commands import parse_extension_command
-from agent_core.models import AgentSession, ChatMessage, CommandResult
+from agent_core.models import AgentSession, ChatMessage, CommandResult, StageStatusSnapshot
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,33 @@ def stage_label_map_for_manifest(manifest: ExtensionManifest) -> dict[str, str]:
         stage_id: f"{index + 1}) {manifest.stage_map()[stage_id].label}"
         for index, stage_id in enumerate(stage_order_for_manifest(manifest))
     }
+
+
+def build_stage_statuses_for_manifest(
+    *,
+    manifest: ExtensionManifest,
+    session: AgentSession,
+) -> list[StageStatusSnapshot]:
+    """Builds a normalized stage-status snapshot for one manifest-driven session."""
+    stage_map = manifest.stage_map()
+    missing = set(session.missing_fields)
+    current = session.collection_state.current_stage
+    statuses: list[StageStatusSnapshot] = []
+    for stage_id in stage_order_for_manifest(manifest):
+        stage = stage_map[stage_id]
+        errors = list(session.validation_errors_by_stage.get(stage_id, []))
+        statuses.append(
+            StageStatusSnapshot(
+                stage_id=stage_id,
+                label=stage.label,
+                depends_on=list(stage.depends_on),
+                ready=stage_id not in missing and not errors,
+                current=stage_id == current,
+                missing=stage_id in missing,
+                errors=errors,
+            )
+        )
+    return statuses
 
 
 def session_is_empty(session: AgentSession) -> bool:
@@ -99,6 +129,10 @@ def reset_session_for_extension(
     order = stage_order_for_manifest(manifest)
     session.collection_state.current_stage = order[0] if order else None
     session.missing_fields = order
+    session.extension_stage_statuses = build_stage_statuses_for_manifest(
+        manifest=manifest,
+        session=session,
+    )
 
 
 def _append_message(session: AgentSession, role: str, content: str) -> None:
@@ -219,6 +253,10 @@ def _recompute_extension_state(
         or current_stage not in session.missing_fields
     ):
         session.collection_state.current_stage = _next_missing_stage(session, manifest)
+    session.extension_stage_statuses = build_stage_statuses_for_manifest(
+        manifest=manifest,
+        session=session,
+    )
 
 
 def _sync_phase_and_summary(session: AgentSession, manifest: ExtensionManifest) -> None:
@@ -524,6 +562,50 @@ def _handle_load_preset(
             f"Built-in preset `{result.preset_ref}` загружен для extension `{manifest.alias}`."
         ),
         draft_changed=True,
+    )
+
+
+def sync_default_or_compatibility_state(
+    *,
+    session: AgentSession,
+    registry: ExtensionRegistry,
+) -> None:
+    """Synchronizes generic extension mirrors for the legacy default OR session."""
+    if not is_default_or_extension(session.extension_alias):
+        return
+
+    discovered = registry.require(DEFAULT_OR_EXTENSION_ALIAS)
+    manifest = discovered.manifest
+    runtime = discovered.create_runtime()
+
+    session.extension_draft = default_or_extension_draft_from_scenario_draft(session.scenario_draft)
+
+    if session.or_result is None:
+        session.extension_result = None
+        session.extension_result_sections = []
+    else:
+        serialized_result, serialization_warning = _serialize_extension_result(session.or_result)
+        session.extension_result = serialized_result
+        session.extension_result_sections = runtime.build_result_sections(session.or_result)
+        if serialization_warning and serialization_warning not in session.warnings:
+            session.warnings.append(serialization_warning)
+
+    stage_ids = stage_order_for_manifest(manifest)
+    raw_errors = runtime.validate_draft(session.extension_draft)
+    normalized_errors = {stage_id: list(raw_errors.get(stage_id, [])) for stage_id in stage_ids}
+    session.validation_errors_by_stage = normalized_errors
+    session.missing_fields = [stage_id for stage_id in stage_ids if normalized_errors[stage_id]]
+    session.collection_state.ready_to_run = not session.missing_fields
+    current_stage = session.collection_state.current_stage
+    if (
+        current_stage is None
+        or current_stage not in stage_ids
+        or current_stage not in session.missing_fields
+    ):
+        session.collection_state.current_stage = _next_missing_stage(session, manifest)
+    session.extension_stage_statuses = build_stage_statuses_for_manifest(
+        manifest=manifest,
+        session=session,
     )
 
 

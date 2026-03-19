@@ -472,6 +472,15 @@ def test_default_browser_flow_still_runs_with_multiple_extensions_registry(
     _assert_or_results_rendered(chat_page)
 
 
+def test_new_default_session_starts_with_generic_stage_progress(chat_page) -> None:
+    """Проверяет, что brand-new default_or session уже показывает честный прогресс stage-ов."""
+    assert "default_or" in chat_page.text_of("current-extension-value")
+    assert chat_page.text_of("current-stage-value") == "1) Production"
+    assert chat_page.text_of("ready-to-run-value") == "Нет"
+    assert chat_page.text_of("stage-status-value-production") == "не готов"
+    assert chat_page.has_testid("empty-results-card")
+
+
 def test_start_flow_shows_drafting_state_and_human_labels(chat_page) -> None:
     """Проверяет стартовый wizard flow после команды `start`."""
     chat_page.send_message("start")

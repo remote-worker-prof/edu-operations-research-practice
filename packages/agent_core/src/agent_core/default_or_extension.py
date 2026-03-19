@@ -19,6 +19,7 @@ from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 from agent_core.config import default_scenario_path
+from agent_core.default_or_contract import DEFAULT_OR_STAGE_ORDER
 
 DEFAULT_OR_EXTENSION_ALIAS = "default_or"
 
@@ -254,3 +255,15 @@ class DefaultORExtensionProvider:
             "assignment": dict(draft.assignment),
             "routing": dict(draft.routing),
         }
+
+
+def default_or_extension_draft_from_scenario_draft(
+    draft: ScenarioDraft,
+) -> dict[str, dict[str, Any]]:
+    """Builds a generic extension draft mirror from the legacy ScenarioDraft."""
+    mirrored: dict[str, dict[str, Any]] = {}
+    for stage_id in DEFAULT_OR_STAGE_ORDER:
+        payload = getattr(draft, stage_id)
+        if payload:
+            mirrored[stage_id] = dict(payload)
+    return mirrored

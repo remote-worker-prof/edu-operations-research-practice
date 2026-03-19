@@ -6,9 +6,10 @@ import json
 import re
 from typing import Any
 
-from agent_core.models import CommandResult, InputPatch, StageName
+from agent_core.default_or_contract import DefaultORStageName
+from agent_core.models import CommandResult, InputPatch
 
-_STAGE_ALIASES: dict[str, StageName] = {
+_STAGE_ALIASES: dict[str, DefaultORStageName] = {
     "production": "production",
     "prod": "production",
     "производство": "production",
@@ -24,7 +25,7 @@ _STAGE_ALIASES: dict[str, StageName] = {
 }
 
 
-def _resolve_stage(raw: str) -> StageName | None:
+def _resolve_stage(raw: str) -> DefaultORStageName | None:
     """Резолвит алиас stage (ru/en) в каноническое имя stage."""
     return _STAGE_ALIASES.get(raw.strip().lower())
 
@@ -54,7 +55,7 @@ def _parse_scalar(value_text: str) -> Any:
 def parse_user_command(
     *,
     message: str,
-    current_stage: StageName | None,
+    current_stage: DefaultORStageName | None,
 ) -> CommandResult:
     """Преобразует реплику пользователя в структурированную команду.
 

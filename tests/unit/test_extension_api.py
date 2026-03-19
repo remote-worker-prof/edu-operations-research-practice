@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 from agent_core.default_or_extension import DEFAULT_OR_EXTENSION_ALIAS
+from agent_core.extensions import tolerant_discovery_report
 from extension_api import (
     DuplicateExtensionAliasError,
     ExtensionManifest,
@@ -15,6 +16,7 @@ from extension_api import (
     InvalidExtensionProviderError,
     StageSpec,
 )
+from fastapi.testclient import TestClient
 from webapp.main import create_app
 
 
@@ -252,6 +254,22 @@ def test_extension_registry_exposes_builtin_preset_loader_when_provider_supports
     assert preset["time_budget"]["weeks"] == 2
 
 
+def test_tolerant_discovery_quarantines_invalid_and_duplicate_extensions() -> None:
+    """Проверяет tolerant startup discovery: good providers survive, broken ones are skipped."""
+    report = tolerant_discovery_report(
+        entry_points=[
+            _FakeEntryPoint(name="study_planner", provider=FakeProvider),
+            _FakeEntryPoint(name="broken_demo", provider=object()),
+            _FakeEntryPoint(name="study_planner_duplicate", provider=DuplicateAliasProvider),
+        ]
+    )
+
+    assert report.registry.aliases() == ["default_or", "study_planner"]
+    assert len(report.warnings) == 2
+    assert "broken_demo" in report.warnings[0]
+    assert "study_planner_duplicate" in report.warnings[1]
+
+
 def test_extension_manifest_rejects_colliding_field_aliases() -> None:
     """Проверяет ранний отказ, если alias конфликтует с другим canonical path."""
     with pytest.raises(ValueError, match="conflicts with canonical field path"):
@@ -319,3 +337,35 @@ def test_create_app_attaches_extension_registry_to_app_state() -> None:
         "Default OR Pipeline"
     )
     assert app.state.extension_registry.require("study_planner").manifest.title == "Study Planner"
+
+
+def test_create_app_uses_tolerant_startup_discovery_and_still_serves_homepage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет, что startup с битым extension не ломает app boot и homepage."""
+    monkeypatch.setattr(
+        "agent_core.extensions.metadata.entry_points",
+        lambda *, group: (
+            [
+                _FakeEntryPoint(name="study_planner", provider=FakeProvider, group=group),
+                _FakeEntryPoint(name="broken_demo", provider=object(), group=group),
+                _FakeEntryPoint(
+                    name="study_planner_duplicate",
+                    provider=DuplicateAliasProvider,
+                    group=group,
+                ),
+            ]
+            if group == "edu_or_agent.extensions"
+            else []
+        ),
+    )
+
+    app = create_app()
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert app.state.extension_registry.aliases() == ["default_or", "study_planner"]
+    assert app.state.service.extension_startup_warnings == app.state.extension_startup_warnings
+    assert len(app.state.extension_startup_warnings) == 2
+    assert "broken_demo" in app.state.extension_startup_warnings[0]
