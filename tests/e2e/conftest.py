@@ -512,7 +512,7 @@ def live_server(web_app) -> str:
     last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            response = httpx.get(f"{base_url}/healthz", timeout=1.0)
+            response = httpx.get(f"{base_url}/healthz", timeout=1.0, trust_env=False)
             if response.status_code == 200:
                 break
         except Exception as exc:  # pragma: no cover - depends on local startup timing

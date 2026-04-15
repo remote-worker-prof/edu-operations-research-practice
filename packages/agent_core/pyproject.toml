@@ -8,6 +8,7 @@ dependencies = [
   "pydantic>=2.11.2",
   "langgraph>=0.2.53",
   "litellm>=1.63.7",
+  "lark>=1.2.2",
   "or-core",
 ]
 

@@ -8,6 +8,13 @@ from typing import Any
 
 from extension_api import ExtensionManifest
 
+from agent_core.dsl_lark import (
+    EditCommandNode,
+    JsonCommandNode,
+    RawJsonCommandNode,
+    SetCommandNode,
+    parse_command_surface,
+)
 from agent_core.models import CommandResult, InputPatch
 
 
@@ -206,15 +213,16 @@ def parse_extension_command(
     }:
         return CommandResult(action="load_preset", preset_ref=manifest.default_preset)
 
-    if lower.startswith("edit "):
-        maybe_stage = _resolve_stage(text.split(" ", maxsplit=1)[1], alias_map)
+    parsed_surface = parse_command_surface(text)
+    if isinstance(parsed_surface, EditCommandNode):
+        maybe_stage = _resolve_stage(parsed_surface.argument, alias_map)
         if maybe_stage is None:
             return CommandResult(action="invalid", errors=["Неизвестный stage для edit"])
         return CommandResult(action="edit_stage", stage=maybe_stage)
 
-    if lower.startswith("json "):
+    if isinstance(parsed_surface, JsonCommandNode):
         stage, _, payload_text = _resolve_json_stage_and_payload(
-            text[len("json ") :],
+            parsed_surface.argument,
             alias_map,
         )
         if payload_text is None:
@@ -240,9 +248,9 @@ def parse_extension_command(
             patch=InputPatch(stage=stage, payload=payload),
         )
 
-    if lower.startswith("set "):
+    if isinstance(parsed_surface, SetCommandNode):
         stage, path, value_text, unknown_stage = _resolve_set_stage_path_and_value(
-            text[len("set ") :],
+            parsed_surface.argument,
             alias_map,
         )
         if stage is None or path is None or value_text is None:
@@ -260,14 +268,14 @@ def parse_extension_command(
             patch=InputPatch(stage=stage, path=path, value=value),
         )
 
-    if text.startswith("{") and text.endswith("}"):
+    if isinstance(parsed_surface, RawJsonCommandNode):
         if current_stage is None:
             return CommandResult(
                 action="invalid",
                 errors=["Уточните stage: используйте json <stage> { ... }"],
             )
         try:
-            payload = json.loads(text)
+            payload = json.loads(parsed_surface.payload_text)
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
             payload = _canonicalize_stage_payload(

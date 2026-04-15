@@ -7,6 +7,13 @@ import re
 from typing import Any
 
 from agent_core.default_or_contract import DefaultORStageName
+from agent_core.dsl_lark import (
+    EditCommandNode,
+    JsonCommandNode,
+    RawJsonCommandNode,
+    SetCommandNode,
+    parse_command_surface,
+)
 from agent_core.models import CommandResult, InputPatch
 
 _STAGE_ALIASES: dict[str, DefaultORStageName] = {
@@ -82,24 +89,25 @@ def parse_user_command(
     if lower in {"load preset demo", "preset demo", "load demo", "загрузить демо"}:
         return CommandResult(action="load_preset", preset_ref="demo")
 
-    if lower.startswith("edit "):
-        maybe_stage = _resolve_stage(text.split(" ", maxsplit=1)[1])
+    parsed_surface = parse_command_surface(text)
+    if isinstance(parsed_surface, EditCommandNode):
+        maybe_stage = _resolve_stage(parsed_surface.argument)
         if maybe_stage is None:
             return CommandResult(action="invalid", errors=["Неизвестный stage для edit"])
         return CommandResult(action="edit_stage", stage=maybe_stage)
 
-    if lower.startswith("json "):
-        parts = text.split(" ", maxsplit=2)
-        if len(parts) < 3:
+    if isinstance(parsed_surface, JsonCommandNode):
+        parts = parsed_surface.argument.split(" ", maxsplit=1)
+        if len(parts) < 2:
             return CommandResult(
                 action="invalid",
                 errors=["Формат: json <stage> { ... }"],
             )
-        stage = _resolve_stage(parts[1])
+        stage = _resolve_stage(parts[0])
         if stage is None:
             return CommandResult(action="invalid", errors=["Неизвестный stage для json"])
         try:
-            payload = json.loads(parts[2])
+            payload = json.loads(parts[1])
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
         except json.JSONDecodeError as exc:
@@ -110,16 +118,16 @@ def parse_user_command(
             patch=InputPatch(stage=stage, payload=payload),
         )
 
-    if lower.startswith("set "):
+    if isinstance(parsed_surface, SetCommandNode):
         # Формат: set <stage>.<path> <value>
-        parts = text.split(" ", maxsplit=2)
-        if len(parts) < 3 or "." not in parts[1]:
+        parts = parsed_surface.argument.split(" ", maxsplit=1)
+        if len(parts) < 2 or "." not in parts[0]:
             return CommandResult(
                 action="invalid",
                 errors=["Формат: set <stage>.<field_path> <value>"],
             )
-        target = parts[1]
-        value = _parse_scalar(parts[2])
+        target = parts[0]
+        value = _parse_scalar(parts[1])
         stage_raw, path = target.split(".", maxsplit=1)
         stage = _resolve_stage(stage_raw)
         if stage is None:
@@ -132,14 +140,14 @@ def parse_user_command(
 
     # Shortcut: если пользователь отправил JSON-объект без команды, применяем
     # его к текущему stage wizard-режима.
-    if text.startswith("{") and text.endswith("}"):
+    if isinstance(parsed_surface, RawJsonCommandNode):
         if current_stage is None:
             return CommandResult(
                 action="invalid",
                 errors=["Уточните stage: используйте json <stage> { ... }"],
             )
         try:
-            payload = json.loads(text)
+            payload = json.loads(parsed_surface.payload_text)
             if not isinstance(payload, dict):
                 return CommandResult(action="invalid", errors=["JSON stage должен быть объектом"])
         except json.JSONDecodeError as exc:

@@ -390,7 +390,11 @@ def test_homepage_renders_workspace_and_local_htmx(chat_page, live_server: str) 
     assert "/static/vendor/htmx-2.0.4.min.js" in chat_page.driver.page_source
     assert "https://unpkg.com" not in chat_page.driver.page_source
 
-    asset_response = httpx.get(f"{live_server}/static/vendor/htmx-2.0.4.min.js", timeout=2.0)
+    asset_response = httpx.get(
+        f"{live_server}/static/vendor/htmx-2.0.4.min.js",
+        timeout=2.0,
+        trust_env=False,
+    )
     assert asset_response.status_code == 200
     assert "htmx" in asset_response.text
 
