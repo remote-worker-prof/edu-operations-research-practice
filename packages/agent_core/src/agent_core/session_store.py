@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from threading import Lock
 
 from agent_core.models import AgentSession
@@ -41,6 +42,18 @@ class InMemorySessionStore:
 
     def save(self, session: AgentSession) -> AgentSession:
         """Сохраняет (копию) сессии и возвращает исходный объект."""
+        session.updated_at = datetime.now(timezone.utc)
         with self._lock:
             self._sessions[session.session_id] = session.model_copy(deep=True)
         return session
+
+    def delete(self, session_id: str) -> bool:
+        """Удаляет сессию по id и сообщает, существовала ли она."""
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
+
+    def list_sessions(self) -> list[AgentSession]:
+        """Возвращает копии всех сессий в порядке последнего обновления."""
+        with self._lock:
+            sessions = [session.model_copy(deep=True) for session in self._sessions.values()]
+        return sorted(sessions, key=lambda item: item.updated_at, reverse=True)

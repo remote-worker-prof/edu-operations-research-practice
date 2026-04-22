@@ -576,3 +576,63 @@ class ExtensionBundleSemantics(BaseModel):
     symbols: list[ExtensionSymbolSemantics] = Field(default_factory=list)
     inputs: list[ExtensionInputStepSemantics] = Field(default_factory=list)
     display: ExtensionDisplaySemantics = Field(default_factory=ExtensionDisplaySemantics)
+
+
+class SlashCommandSpec(BaseModel):
+    """Typed description of one slash command for palettes, help, and autocomplete."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    usage: str
+    summary: str
+    category: Literal["user", "power"] = "user"
+    example: str | None = None
+
+
+class ExtensionOption(BaseModel):
+    """Lightweight public metadata for one available extension."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    alias: str
+    title: str
+    description: str
+
+
+class ExtensionStageInteraction(BaseModel):
+    """Dynamic UI-facing snapshot for one wizard stage in the current thread."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str
+    label: str
+    depends_on: list[str] = Field(default_factory=list)
+    ready: bool = False
+    current: bool = False
+    missing: bool = False
+    errors: list[str] = Field(default_factory=list)
+    expectation_hint: str | None = None
+    example_command: str | None = None
+
+
+class ExtensionInteractionState(BaseModel):
+    """Dynamic typed interaction state for backend-owned chat threads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    thread_id: str
+    thread_exists: bool = True
+    active_extension: str
+    available_extensions: list[ExtensionOption] = Field(default_factory=list)
+    current_stage: str | None = None
+    pending_question: str | None = None
+    draft_summary: str | None = None
+    expected_payload: dict[str, Any] | None = None
+    draft: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    stage_statuses: list[ExtensionStageInteraction] = Field(default_factory=list)
+    current_step: ExtensionInputStepSemantics | None = None
+    display: ExtensionDisplaySemantics | None = None
+    result_sections: list[ExtensionResultSection] = Field(default_factory=list)
+    commands: list[SlashCommandSpec] = Field(default_factory=list)
+    semantics: ExtensionBundleSemantics | None = None

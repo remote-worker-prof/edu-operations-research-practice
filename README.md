@@ -31,10 +31,12 @@ slice платформы расширений:
 - `LiteLLM` (OpenAI, GigaChat, локальный/сторонний LLM-сервер с OpenAI-compatible API)
 - `SciPy`, `NetworkX`, `OR-Tools` (реальные OR-солверы)
 - `FastAPI` + `Jinja2` + `HTMX` (легковесный веб-интерфейс)
+- `Next.js` + `CopilotKit` + `AG-UI` (новый primary chat shell поверх typed semantics)
 
 ## Структура монорепо
 
 - `apps/webapp` — веб-приложение и API
+- `apps/chat_web` — новый React/Next.js AI-чат с guided UX
 - `packages/agent_core` — диалоговый агент, сессии, LLM-адаптер
 - `packages/or_core` — доменные модели и OR-солверы
 - `data/scenarios` — учебные сценарии
@@ -50,6 +52,13 @@ uv run --package webapp uvicorn webapp.main:app --reload
 ```
 
 Открыть в браузере: `http://127.0.0.1:8000`
+
+Новый primary chat shell можно запустить отдельно:
+
+```bash
+make chat-web-install
+make chat-web-dev
+```
 
 ## Makefile
 
@@ -68,6 +77,8 @@ make test-e2e-openai
 make test-e2e-openai-demo
 make test-e2e-openai-demo-record
 make test-e2e-openai-video-pack
+make chat-web-test
+make chat-web-build
 make docker-up
 make bd-check
 make bd-import
