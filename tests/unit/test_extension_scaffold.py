@@ -1,4 +1,4 @@
-"""Unit tests for the student_v1 scaffold generator."""
+"""Unit tests for the student_math_v2 scaffold generator."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _spec():
     )
 
 
-def test_render_bundle_files_produces_expected_student_v1_tree() -> None:
+def test_render_bundle_files_produces_expected_student_math_v2_tree() -> None:
     """The renderer should generate the full compact+tutorial bundle from one spec."""
     rendered = render_bundle_files(_spec())
 
@@ -53,13 +53,13 @@ def test_render_bundle_files_produces_expected_student_v1_tree() -> None:
     }
 
     compact_config = yaml.safe_load(rendered.files["extension.yaml"])
-    assert compact_config["format"] == "student_v1"
+    assert compact_config["format"] == "student_math_v2"
     assert compact_config["extension"]["alias"] == "consultation_planner"
-    assert compact_config["wizard"][0]["table"]["set"] == "CONSULTATIONS"
-    assert compact_config["results"]["show"][-1] == "allocation_plan"
-    assert "aliases:" not in rendered.files["extension.yaml"]
+    assert compact_config["inputs"][0]["table"]["set"] == "CONSULTATIONS"
+    assert compact_config["display"]["tables"][0]["id"] == "allocation_plan"
     assert "set CONSULTATIONS" in rendered.files["model.orx"]
-    assert "report allocation_plan by i in CONSULTATIONS:" in rendered.files["model.orx"]
+    assert "subject to total_budget" in rendered.files["model.orx"]
+    assert "report allocation_plan" not in rendered.files["model.orx"]
 
 
 def test_scaffold_bundle_writes_valid_bundle_and_solves_demo(tmp_path) -> None:

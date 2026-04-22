@@ -1,31 +1,28 @@
-# Это учебная, подробно прокомментированная версия файла extension.yaml.
-# Она исполняемая: валидатор должен уметь загрузить ее так же, как и обычный файл.
-# Разница только в том, что здесь мы объясняем почти каждую строку простым русским языком.
+# Это учебная, подробно прокомментированная версия extension.yaml.
+# Она тоже исполняемая: валидатор должен уметь загрузить её так же,
+# как и компактную runtime-версию.
 
-format: student_v1
+format: student_math_v2
 
 extension:
-  # alias — это короткое техническое имя расширения.
-  # Его видит система, когда ищет extension по папке.
+  # alias — короткое техническое имя расширения.
   alias: study_planner
 
-  # title — человеко-понятное название, которое увидит студент в интерфейсе.
+  # title — то, что студент видит в интерфейсе.
   title: Study Planner
 
-  # description — короткое описание смысла модели.
+  # description — зачем существует этот bundle.
   description: >-
     Учебное расширение для постановки и решения простой LP-задачи:
     распределить ограниченный запас учебных часов по курсам так, чтобы получить
     максимальную суммарную полезность.
 
-  # version — просто версия bundle.
-  version: 0.3.0
-
-  # default_preset — какой готовый пример подгружать по команде `load preset demo`.
+  version: 0.4.0
   default_preset: demo
 
-  # labels — подписи для итоговых report-значений и колонок таблиц.
-  # Слева — техническое имя отчета из model.orx, справа — то, что увидит студент.
+  # labels — подписи для итоговых чисел и колонок таблиц.
+  # Слева — технические имена display/report-элементов,
+  # справа — русские подписи в интерфейсе.
   labels:
     total_available_hours: Всего часов в распоряжении
     total_required_hours: Всего часов нужно
@@ -41,52 +38,51 @@ extension:
     course_plan.completion_ratio: Доля выполнения
     course_plan.completion_ratio_pct: Выполнение, %
 
-# wizard — это сценарий ввода данных.
-# Здесь мы говорим движку: какие шаги проходит студент и какие данные вводит на каждом шаге.
-wizard:
-  # Шаг 1. Вводим список курсов и сколько часов нужно на каждый курс.
+# inputs — это данные, которые вводит студент.
+# Главное отличие от student_v1: здесь мы думаем через символы модели,
+# а не через явные bindings на низком уровне.
+inputs:
+  # Шаг 1. Заполняем множество курсов и параметр required_hours{COURSES}.
   - id: courses
     label: Курсы
-
-    # table — удобный способ сказать движку: здесь есть одно множество и несколько списков,
-    # которые должны идти в одном и том же порядке.
     table:
-      # id — внутреннее имя таблицы. Пока оно нужно только как метка внутри DSL.
-      id: course_rows
-
-      # set: COURSES означает, что список course_names будет наполнять множество COURSES
-      # из model.orx.
+      # set говорит, какое множество в математической модели мы наполняем.
       set: COURSES
 
       key:
-        # key.id — имя поля, в котором лежат элементы множества.
-        id: course_names
+        # field — внутренний ключ payload. Он нужен для совместимости API/chat-flow.
+        field: course_names
         label: Названия курсов
-        help: Перечислите курсы в том порядке, в котором будете задавать остальные списки.
-
-        # example — пример одного элемента.
-        # Для таблицы валидатор сам превращает его в список из одного элемента.
+        help: >-
+          Перечислите курсы в том порядке,
+          в котором будете задавать остальные списки.
         example: Math
         aliases:
           - names
 
       columns:
-        # Колонка required_hours автоматически привяжется к param required_hours[COURSES]
-        # в model.orx, потому что имя совпадает.
-        - id: required_hours
+        # param указывает прямо на символ модели `required_hours{COURSES}`.
+        - param: required_hours
+          field: required_hours
           label: Требуемые часы
-          help: Сколько часов нужно, чтобы полностью закрыть каждый курс.
+          help: >-
+            Сколько часов нужно, чтобы полностью закрыть каждый курс.
           type: number
           min: 0.0001
           example: 30
           aliases:
             - hours_needed
 
-  # Шаг 2. Сколько часов вообще можно распределять.
+  # Шаг 2. Вводим scalar-параметры времени.
   - id: time_budget
     label: Бюджет времени
-    fields:
-      - id: weekly_hours
+    aliases:
+      - budget
+      - time budget
+      - бюджет времени
+    params:
+      - param: weekly_hours
+        field: weekly_hours
         label: Часов в неделю
         help: Реалистичный недельный лимит самостоятельной учебы.
         type: number
@@ -94,8 +90,8 @@ wizard:
         example: 12
         aliases:
           - hours_per_week
-
-      - id: weeks
+      - param: weeks
+        field: weeks
         label: Количество недель
         help: Сколько недель длится ваш план.
         type: number
@@ -104,14 +100,16 @@ wizard:
         aliases:
           - study_weeks
 
-  # Шаг 3. Насколько важен каждый курс.
+  # Шаг 3. Вводим векторный параметр priority{COURSES}.
   - id: priorities
     label: Приоритеты
-    fields:
-      - id: priority
+    vectors:
+      - param: priority
+        over: COURSES
+        field: priority
         label: Веса приоритетов
         help: Чем выше число, тем полезнее дополнительный час на этом курсе.
-        type: list[number]
+        type: number
         min: 0.0001
         example:
           - 0.5
@@ -121,28 +119,41 @@ wizard:
           - weights
           - priority_weights
 
-# results.show — просто порядок показа report-ов из model.orx.
-# Никакой дополнительной верстки студенту описывать не нужно.
-results:
-  show:
-    - total_available_hours
-    - total_required_hours
-    - total_used_hours
-    - remaining_hours
-    - achieved_weighted_score
-    - course_plan
+# display — это уже не математика,
+# а описание того, что приложение должно показать после решения.
+# Здесь можно ссылаться на выражения модели, но нельзя описывать solver-логику.
+display:
+  summary:
+    - id: total_available_hours
+      expr: available_hours
+    - id: total_required_hours
+      expr: sum{c in COURSES} required_hours[c]
+    - id: total_used_hours
+      expr: sum{c in COURSES} study_hours[c]
+    - id: remaining_hours
+      expr: available_hours - sum{c in COURSES} study_hours[c]
+    - id: achieved_weighted_score
+      expr: sum{c in COURSES} priority[c] * study_hours[c]
 
-# presets — готовые демонстрационные входные данные.
+  tables:
+    - id: course_plan
+      # rows говорит, как перебираются строки таблицы.
+      rows: c in COURSES
+      columns:
+        - id: course
+          expr: c
+        - id: required_hours
+          expr: required_hours[c]
+        - id: allocated_hours
+          expr: study_hours[c]
+        - id: gap_hours
+          expr: required_hours[c] - study_hours[c]
+        - id: priority
+          expr: priority[c]
+        - id: completion_ratio
+          expr: study_hours[c] / required_hours[c]
+        - id: completion_ratio_pct
+          expr: 100 * study_hours[c] / required_hours[c]
+
 presets:
   demo: presets/demo.yaml
-
-# text — шаблоны пояснений, которые показывает система после решения.
-text:
-  fallback_explain_template: >-
-    Модель распределила {total_used_hours} часов из {total_available_hours} доступных.
-    Суммарная полезность плана равна {achieved_weighted_score}. Смотрите таблицу
-    "План по курсам", чтобы увидеть, какие курсы закрыты полностью, а где остался дефицит.
-  llm_explain_prompt_template: >-
-    Объясни студенту по исследованию операций результат модели study_planner.
-    Подчеркни, почему часы распределились именно так, что означает дефицит часов
-    и как читать итоговую таблицу. Result payload: {result}

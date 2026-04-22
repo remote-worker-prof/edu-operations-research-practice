@@ -1,4 +1,4 @@
-"""CLI scaffold generator for student_v1 declarative extension bundles."""
+"""CLI scaffold generator for student_math_v2 declarative extension bundles."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class ScaffoldSpec:
 
     @property
     def resource_label_with_unit(self) -> str:
-        return f"{self.resource_label_ru}"
+        return self.resource_label_ru
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +147,7 @@ def _write_rendered_bundle(bundle_root: Path, rendered: RenderedBundle) -> None:
 
 def _render_extension_yaml(spec: ScaffoldSpec) -> str:
     payload = {
-        "format": "student_v1",
+        "format": "student_math_v2",
         "extension": {
             "alias": spec.alias,
             "title": spec.title,
@@ -172,15 +172,14 @@ def _render_extension_yaml(spec: ScaffoldSpec) -> str:
                 "allocation_plan.coverage_ratio_pct": "Покрытие, %",
             },
         },
-        "wizard": [
+        "inputs": [
             {
                 "id": "items",
                 "label": spec.entity_plural_ru,
                 "table": {
-                    "id": "item_rows",
                     "set": spec.set_symbol,
                     "key": {
-                        "id": "item_names",
+                        "field": "item_names",
                         "label": spec.entity_plural_ru,
                         "help": (
                             f"Перечислите {spec.entity_plural_ru.lower()} в том порядке, "
@@ -190,7 +189,8 @@ def _render_extension_yaml(spec: ScaffoldSpec) -> str:
                     },
                     "columns": [
                         {
-                            "id": "required_units",
+                            "param": "required_units",
+                            "field": "required_units",
                             "label": f"Требуемый объём ({spec.resource_label_with_unit})",
                             "help": (
                                 f'Сколько ресурса "{spec.resource_label_ru}" нужно, '
@@ -206,9 +206,10 @@ def _render_extension_yaml(spec: ScaffoldSpec) -> str:
             {
                 "id": "budget",
                 "label": "Бюджет ресурса",
-                "fields": [
+                "params": [
                     {
-                        "id": "available_units",
+                        "param": "available_units",
+                        "field": "available_units",
                         "label": f"Доступный объём ({spec.resource_label_with_unit})",
                         "help": (
                             f'Сколько ресурса "{spec.resource_label_ru}" есть всего '
@@ -223,45 +224,73 @@ def _render_extension_yaml(spec: ScaffoldSpec) -> str:
             {
                 "id": "priorities",
                 "label": "Приоритеты",
-                "fields": [
+                "vectors": [
                     {
-                        "id": "priority",
+                        "param": "priority",
+                        "over": spec.set_symbol,
+                        "field": "priority",
                         "label": f"Веса приоритетов для {spec.entity_plural_ru}",
                         "help": (
                             f"Чем выше число, тем полезнее дополнительная единица ресурса "
                             f'"{spec.resource_label_ru}" для данного объекта.'
                         ),
-                        "type": "list[number]",
+                        "type": "number",
                         "min": 0.0001,
                         "example": [0.5, 0.3, 0.2],
                     }
                 ],
             },
         ],
-        "results": {
-            "show": [
-                "total_available_units",
-                "total_required_units",
-                "total_allocated_units",
-                "remaining_units",
-                "achieved_weighted_score",
-                "allocation_plan",
-            ]
+        "display": {
+            "summary": [
+                {"id": "total_available_units", "expr": "available_units"},
+                {
+                    "id": "total_required_units",
+                    "expr": f"sum{{i in {spec.set_symbol}}} required_units[i]",
+                },
+                {
+                    "id": "total_allocated_units",
+                    "expr": f"sum{{i in {spec.set_symbol}}} allocated_units[i]",
+                },
+                {
+                    "id": "remaining_units",
+                    "expr": (
+                        f"available_units - sum{{i in {spec.set_symbol}}} allocated_units[i]"
+                    ),
+                },
+                {
+                    "id": "achieved_weighted_score",
+                    "expr": (
+                        f"sum{{i in {spec.set_symbol}}} priority[i] * allocated_units[i]"
+                    ),
+                },
+            ],
+            "tables": [
+                {
+                    "id": "allocation_plan",
+                    "rows": f"i in {spec.set_symbol}",
+                    "columns": [
+                        {"id": "item", "expr": "i"},
+                        {"id": "required_units", "expr": "required_units[i]"},
+                        {"id": "allocated_units", "expr": "allocated_units[i]"},
+                        {
+                            "id": "gap_units",
+                            "expr": "required_units[i] - allocated_units[i]",
+                        },
+                        {"id": "priority", "expr": "priority[i]"},
+                        {
+                            "id": "coverage_ratio",
+                            "expr": "allocated_units[i] / required_units[i]",
+                        },
+                        {
+                            "id": "coverage_ratio_pct",
+                            "expr": "100 * allocated_units[i] / required_units[i]",
+                        },
+                    ],
+                }
+            ],
         },
         "presets": {"demo": "presets/demo.yaml"},
-        "text": {
-            "fallback_explain_template": (
-                "Модель распределила {total_allocated_units} из {total_available_units} "
-                f'единиц ресурса "{spec.resource_label_ru}". '
-                "Смотрите таблицу распределения, чтобы понять, где ресурс покрывает "
-                "потребность полностью, а где остается дефицит."
-            ),
-            "llm_explain_prompt_template": (
-                f"Объясни студенту по исследованию операций результат allocation-модели "
-                f'для объектов типа "{spec.entity_plural_ru}" и ресурса '
-                f'"{spec.resource_label_ru}". Result payload: {{result}}'
-            ),
-        },
     }
     return _yaml_dump(payload)
 
@@ -269,37 +298,22 @@ def _render_extension_yaml(spec: ScaffoldSpec) -> str:
 def _render_model_orx(spec: ScaffoldSpec) -> str:
     return dedent(
         f"""\
-        # Compact allocation-style LP model generated by the student_v1 scaffold.
+        # Math-first allocation-style LP model generated by the student_math_v2 scaffold.
+        # This file contains only the optimization model.
 
-        set {spec.set_symbol}
+        set {spec.set_symbol};
 
-        param available_units
-        param required_units[{spec.set_symbol}]
-        param priority[{spec.set_symbol}]
+        param available_units;
+        param required_units{{{spec.set_symbol}}};
+        param priority{{{spec.set_symbol}}};
 
-        var allocated_units[{spec.set_symbol}] in 0..required_units[{spec.set_symbol}]
+        var allocated_units{{i in {spec.set_symbol}}} >= 0 <= required_units[i];
 
         maximize allocation_score:
-            sum(i in {spec.set_symbol}, priority[i] * allocated_units[i])
+            sum{{i in {spec.set_symbol}}} priority[i] * allocated_units[i];
 
-        st total_budget:
-            sum(i in {spec.set_symbol}, allocated_units[i]) <= available_units
-
-        report total_available_units = available_units
-        report total_required_units = sum(i in {spec.set_symbol}, required_units[i])
-        report total_allocated_units = sum(i in {spec.set_symbol}, allocated_units[i])
-        report remaining_units = available_units - sum(i in {spec.set_symbol}, allocated_units[i])
-        report achieved_weighted_score =
-            sum(i in {spec.set_symbol}, priority[i] * allocated_units[i])
-
-        report allocation_plan by i in {spec.set_symbol}:
-            item = i
-            required_units = required_units[i]
-            allocated_units = allocated_units[i]
-            gap_units = required_units[i] - allocated_units[i]
-            priority = priority[i]
-            coverage_ratio = allocated_units[i] / required_units[i]
-            coverage_ratio_pct = 100 * allocated_units[i] / required_units[i]
+        subject to total_budget:
+            sum{{i in {spec.set_symbol}}} allocated_units[i] <= available_units;
         """
     )
 
@@ -321,33 +335,19 @@ def _render_annotated_extension_yaml(spec: ScaffoldSpec) -> str:
     resource = spec.resource_label_ru
     return dedent(
         f"""\
-        # Это учебная, подробно прокомментированная версия файла extension.yaml.
-        # Она исполняемая: валидатор должен уметь загрузить ее так же, как и обычный файл.
-        # Разница только в том, что здесь мы объясняем почти каждую строку простым русским языком.
+        # Это учебная, подробно прокомментированная версия extension.yaml.
+        # Она исполняемая: валидатор должен уметь загрузить её так же, как и обычный файл.
 
-        format: student_v1
+        format: student_math_v2
 
         extension:
-          # alias — это короткое техническое имя расширения.
-          # Его видит система, когда ищет extension по папке.
           alias: {spec.alias}
-
-          # title — человеко-понятное название, которое увидит студент в интерфейсе.
           title: {spec.title}
-
-          # description — короткое описание смысла модели.
           description: >-
             Учебное расширение для распределения ограниченного ресурса "{resource}"
             между объектами типа "{items_label}".
-
-          # version — просто версия bundle.
           version: 0.1.0
-
-          # default_preset — какой готовый пример подгружать по команде `load preset demo`.
           default_preset: demo
-
-          # labels — подписи для итоговых report-значений и колонок таблиц.
-          # Слева — техническое имя отчета из model.orx, справа — то, что увидит студент.
           labels:
             total_available_units: Всего ресурса ({spec.resource_label_with_unit})
             total_required_units: Сколько ресурса нужно ({spec.resource_label_with_unit})
@@ -363,32 +363,23 @@ def _render_annotated_extension_yaml(spec: ScaffoldSpec) -> str:
             allocation_plan.coverage_ratio: Доля покрытия
             allocation_plan.coverage_ratio_pct: Покрытие, %
 
-        # wizard — это сценарий ввода данных.
-        # Здесь мы говорим движку: какие шаги проходит студент и какие данные вводит на каждом шаге.
-        wizard:
-          # Шаг 1. Вводим список объектов и сколько ресурса нужно на каждый объект.
+        # inputs отвечает за то, какие данные вводит студент.
+        inputs:
           - id: items
             label: {items_label}
             table:
-              # id — внутреннее имя таблицы. Пока оно нужно только как метка внутри DSL.
-              id: item_rows
-
-              # set — множество объектов в математической модели.
+              # set показывает, какое множество в модели мы наполняем.
               set: {spec.set_symbol}
-
               key:
-                # key.id — имя поля, в котором лежат элементы множества.
-                id: item_names
+                field: item_names
                 label: {items_label}
                 help: >-
                   Перечислите {items_label.lower()} в том порядке,
                   в котором будете задавать остальные списки.
                 example: {spec.example_items[0]}
-
               columns:
-                # required_units автоматически привяжется к
-                # param required_units[{spec.set_symbol}] в model.orx.
-                - id: required_units
+                - param: required_units
+                  field: required_units
                   label: Требуемый объём ({spec.resource_label_with_unit})
                   help: >-
                     Сколько ресурса "{resource}" нужно,
@@ -397,60 +388,71 @@ def _render_annotated_extension_yaml(spec: ScaffoldSpec) -> str:
                   min: 0.0001
                   example: 30
 
-          # Шаг 2. Сколько ресурса вообще можно распределить.
           - id: budget
             label: Бюджет ресурса
-            fields:
-              - id: available_units
+            params:
+              - param: available_units
+                field: available_units
                 label: Доступный объём ({spec.resource_label_with_unit})
                 help: >-
-                  Сколько ресурса "{resource}" есть всего
-                  для распределения.
+                  Сколько ресурса "{resource}" есть всего для распределения.
                 type: number
                 min: 0.0001
                 example: 48
 
-          # Шаг 3. Насколько важен каждый объект.
           - id: priorities
             label: Приоритеты
-            fields:
-              - id: priority
+            vectors:
+              - param: priority
+                over: {spec.set_symbol}
+                field: priority
                 label: Веса приоритетов для {items_label}
                 help: >-
-                  Чем выше число, тем полезнее дополнительная
-                  единица ресурса "{resource}" для данного объекта.
-                type: list[number]
+                  Чем выше число, тем полезнее дополнительная единица ресурса
+                  "{resource}" для данного объекта.
+                type: number
                 min: 0.0001
                 example:
                   - 0.5
                   - 0.3
                   - 0.2
 
-        # results.show — просто порядок показа report-ов из model.orx.
-        # Никакой дополнительной верстки студенту описывать не нужно.
-        results:
-          show:
-            - total_available_units
-            - total_required_units
-            - total_allocated_units
-            - remaining_units
-            - achieved_weighted_score
-            - allocation_plan
+        # display описывает, что показывать после решения.
+        # Здесь уже можно строить итоговые таблицы и summary-значения,
+        # но сама оптимизационная постановка живёт отдельно в model.orx.
+        display:
+          summary:
+            - id: total_available_units
+              expr: available_units
+            - id: total_required_units
+              expr: sum{{i in {spec.set_symbol}}} required_units[i]
+            - id: total_allocated_units
+              expr: sum{{i in {spec.set_symbol}}} allocated_units[i]
+            - id: remaining_units
+              expr: available_units - sum{{i in {spec.set_symbol}}} allocated_units[i]
+            - id: achieved_weighted_score
+              expr: sum{{i in {spec.set_symbol}}} priority[i] * allocated_units[i]
+          tables:
+            - id: allocation_plan
+              rows: i in {spec.set_symbol}
+              columns:
+                - id: item
+                  expr: i
+                - id: required_units
+                  expr: required_units[i]
+                - id: allocated_units
+                  expr: allocated_units[i]
+                - id: gap_units
+                  expr: required_units[i] - allocated_units[i]
+                - id: priority
+                  expr: priority[i]
+                - id: coverage_ratio
+                  expr: allocated_units[i] / required_units[i]
+                - id: coverage_ratio_pct
+                  expr: 100 * allocated_units[i] / required_units[i]
 
-        # presets — готовые демонстрационные входные данные.
         presets:
           demo: presets/demo.yaml
-
-        # text — шаблоны пояснений, которые показывает система после решения.
-        text:
-          fallback_explain_template: >-
-            Модель распределила {{total_allocated_units}} из {{total_available_units}}
-            единиц ресурса "{resource}". Смотрите таблицу распределения, чтобы понять,
-            где ресурс покрывает потребность полностью, а где остается дефицит.
-          llm_explain_prompt_template: >-
-            Объясни студенту по исследованию операций результат allocation-модели
-            для объектов типа "{items_label}" и ресурса "{resource}".
-            Result payload: {{result}}
         """
     )
 
@@ -461,54 +463,34 @@ def _render_annotated_model_orx(spec: ScaffoldSpec) -> str:
     return dedent(
         f"""\
         # Это учебная, подробно прокомментированная версия model.orx.
-        # Здесь мы показываем модель почти построчно и объясняем, что означает каждая конструкция.
+        # Здесь лежит только математическая постановка задачи.
 
-        # 1) Объявляем множество {set_symbol}.
-        # В нем будут лежать названия объектов, между которыми распределяется ресурс.
-        set {set_symbol}
+        # 1) Объявляем множество объектов.
+        set {set_symbol};
 
-        # 2) Объявляем входные параметры.
-        # available_units — общий доступный объём ресурса "{resource}".
-        param available_units
+        # 2) Объявляем известные заранее параметры.
+        # available_units — сколько ресурса "{resource}" есть всего.
+        param available_units;
 
-        # required_units[{set_symbol}] — сколько ресурса нужно для полного покрытия каждого объекта.
-        param required_units[{set_symbol}]
+        # required_units{{{set_symbol}}} — сколько ресурса нужно каждому объекту.
+        param required_units{{{set_symbol}}};
 
-        # priority[{set_symbol}] — вес важности каждого объекта.
-        param priority[{set_symbol}]
+        # priority{{{set_symbol}}} — насколько важен каждый объект.
+        param priority{{{set_symbol}}};
 
         # 3) Объявляем переменную решения.
-        # allocated_units[{set_symbol}] — сколько ресурса реально выделить каждому объекту.
-        # Запись `in 0..required_units[{set_symbol}]` означает, что выделить можно
-        # не меньше 0 и не больше полной потребности объекта.
-        var allocated_units[{set_symbol}] in 0..required_units[{set_symbol}]
+        # allocated_units[i] — сколько ресурса реально выделить объекту i.
+        # Справа сразу записаны bounds: от 0 до полной потребности объекта.
+        var allocated_units{{i in {set_symbol}}} >= 0 <= required_units[i];
 
         # 4) Целевая функция.
-        # Мы хотим максимизировать суммарную полезность распределения.
+        # Максимизируем суммарную полезность распределения.
         maximize allocation_score:
-            sum(i in {set_symbol}, priority[i] * allocated_units[i])
+            sum{{i in {set_symbol}}} priority[i] * allocated_units[i];
 
         # 5) Ограничение по общему бюджету ресурса.
-        st total_budget:
-            sum(i in {set_symbol}, allocated_units[i]) <= available_units
-
-        # 6) Скалярные отчеты для красивого вывода в интерфейсе.
-        report total_available_units = available_units
-        report total_required_units = sum(i in {set_symbol}, required_units[i])
-        report total_allocated_units = sum(i in {set_symbol}, allocated_units[i])
-        report remaining_units = available_units - sum(i in {set_symbol}, allocated_units[i])
-        report achieved_weighted_score = sum(i in {set_symbol}, priority[i] * allocated_units[i])
-
-        # 7) Табличный отчет.
-        # Он показывает решение по каждому объекту отдельно.
-        report allocation_plan by i in {set_symbol}:
-            item = i
-            required_units = required_units[i]
-            allocated_units = allocated_units[i]
-            gap_units = required_units[i] - allocated_units[i]
-            priority = priority[i]
-            coverage_ratio = allocated_units[i] / required_units[i]
-            coverage_ratio_pct = 100 * allocated_units[i] / required_units[i]
+        subject to total_budget:
+            sum{{i in {set_symbol}}} allocated_units[i] <= available_units;
         """
     )
 
@@ -519,62 +501,51 @@ def _render_tutorial_readme(spec: ScaffoldSpec) -> str:
         # {spec.title}: tutorial-версия для студентов
 
         ## Ментальная модель
-        - `extension.yaml` отвечает за то,
-          **что вводит пользователь** и **что показывает приложение**.
-        - `model.orx` отвечает за то, **что именно считает математическая модель**.
-        - Python студенту не нужен:
-          движок уже умеет читать DSL, собирать LP и решать задачу.
+        - `model.orx` отвечает за математическую постановку задачи.
+        - `extension.yaml` отвечает за ввод данных, подписи и показ результата.
+        - Python студенту не нужен.
 
         ## Что вводит студент
-        1. На шаге `items` вводится список объектов типа "{spec.entity_plural_ru}".
-        2. На том же шаге задается,
-           сколько ресурса "{spec.resource_label_ru}" нужно на каждый объект.
-        3. На шаге `budget` вводится общий запас ресурса.
-        4. На шаге `priorities` вводятся веса важности объектов.
+        1. Список объектов типа "{spec.entity_plural_ru}".
+        2. Сколько ресурса "{spec.resource_label_ru}" нужно каждому объекту.
+        3. Общий доступный объём ресурса.
+        4. Веса приоритетов.
 
         ## Что считает модель
         - Есть множество объектов `{spec.set_symbol}`.
-        - Есть известные заранее параметры:
-          доступный ресурс, потребность и веса приоритетов.
-        - Есть переменная решения `allocated_units`,
-          которая показывает, сколько ресурса реально выделить.
-        - Цель модели: распределить ресурс так, чтобы суммарная полезность была максимальной.
+        - Есть параметры: потребности, приоритеты и общий бюджет.
+        - Есть переменная решения `allocated_units`.
+        - Цель модели: максимизировать суммарную полезность.
         - Ограничение модели: нельзя распределить больше ресурса, чем доступно.
 
         ## Что показывает приложение
-        - Несколько числовых итогов:
-          сколько ресурса доступно, сколько распределили и сколько осталось.
-        - Таблицу `allocation_plan`, где по каждому объекту видно:
-          - сколько ресурса было нужно;
-          - сколько ресурса реально выделили;
-          - какой дефицит остался;
-          - какой процент потребности удалось покрыть.
+        - Итоговые summary-значения.
+        - Таблицу `allocation_plan` по каждому объекту.
 
         ## Как адаптировать этот пример под свой класс задач
-        1. Сначала отредактируйте рабочие файлы `extension.yaml` и `model.orx`.
-        2. Затем обновите файлы из папки `tutorial/`,
-           чтобы комментарии и объяснения соответствовали рабочей версии.
-        3. При необходимости переименуйте `{spec.set_symbol}`
-           и математические символы в `model.orx`.
-        4. Сохраните общий принцип:
-           - YAML описывает ввод и вывод.
-           - ORX описывает математику.
-        5. Проверьте bundle командой:
+        1. Сначала отредактируйте `model.orx`.
+        2. Затем приведите `extension.yaml` в соответствие с новой моделью.
+        3. После этого синхронизируйте tutorial-файлы.
+        4. Проверьте bundle командой:
 
         ```bash
         make extension-check EXT={spec.alias}
         ```
 
-        ## На что смотреть в первую очередь
-        - Если вы не понимаете `extension.yaml`,
-          начинайте сверху вниз и читайте комментарии над каждым блоком.
-        - Если вы не понимаете `model.orx`,
-          читайте его в порядке:
-          `set` -> `param` -> `var` -> `maximize` -> `st` -> `report`.
-        - Если кажется, что DSL сложный, смотрите на него как на три вопроса:
-          - что у меня является объектами задачи;
-          - какие числа я знаю заранее;
-          - какие числа нужно подобрать оптимально.
+        ## Как читать модель
+        Читайте `model.orx` всегда в одном порядке:
+        1. `set`
+        2. `param`
+        3. `var`
+        4. `maximize` / `minimize`
+        5. `subject to`
+
+        ## Как читать sidecar
+        В `extension.yaml` двигайтесь так:
+        1. `extension`
+        2. `inputs`
+        3. `display`
+        4. `presets`
         """
     )
 
@@ -591,7 +562,7 @@ def _yaml_dump(payload: object) -> str:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m agent_core.extension_scaffold",
-        description="Generate one student_v1 declarative extension scaffold.",
+        description="Generate one student_math_v2 declarative extension scaffold.",
     )
     parser.add_argument("alias", help="New extension alias, for example tasks_allocator")
     parser.add_argument("--title", required=True, help="User-facing extension title")

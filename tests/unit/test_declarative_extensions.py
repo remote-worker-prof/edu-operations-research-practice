@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from agent_core.declarative_extensions import load_declarative_bundle, load_declarative_provider
 from agent_core.declarative_orx import DeclarativeModelError, compile_orx_model, parse_orx_model
+from agent_core.declarative_orx_v2 import parse_orx_model_v2
 from agent_core.extensions import tolerant_discovery_report
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,7 @@ def test_declarative_study_planner_bundle_loads_and_solves_demo_preset() -> None
     assert result["achieved_weighted_score"] == 20.4
     assert result["course_plan"][0]["course"] == "Math"
     assert result["course_plan"][0]["allocated_hours"] == 30.0
-    assert provider.get_manifest().ui_metadata["dsl_format"] == "student_v1"
+    assert provider.get_manifest().ui_metadata["dsl_format"] == "student_math_v2"
 
 
 def test_tolerant_discovery_report_discovers_file_bundles() -> None:
@@ -96,6 +97,51 @@ report plan by i in ITEMS:
     assert compiled.vars[0].upper is not None
     assert compiled.table_reports[0].name == "plan"
     assert compiled.table_reports[0].fields[0].name == "item"
+
+
+def test_orx_v2_accepts_math_first_algebraic_notation() -> None:
+    """Math-first ORX v2 should accept AMPL-like declarations and `subject to`."""
+    source = """
+set COURSES;
+param weekly_hours;
+param weeks;
+param required_hours{COURSES};
+param priority{COURSES};
+param available_hours = weekly_hours * weeks;
+var study_hours{c in COURSES} >= 0 <= required_hours[c];
+maximize weighted_score:
+    sum{c in COURSES} priority[c] * study_hours[c];
+subject to total_hours:
+    sum{c in COURSES} study_hours[c] <= available_hours;
+"""
+    compiled = compile_orx_model(parse_orx_model_v2(source))
+
+    assert compiled.objective.name == "weighted_score"
+    assert compiled.vars[0].index_sets == ("COURSES",)
+    assert compiled.constraints[0].name == "total_hours"
+
+
+def test_orx_v2_supports_two_dimensional_transportation_style_symbols() -> None:
+    """The v2 metamodel/compiler should support 2-D continuous LP models."""
+    source = """
+set ORIGINS;
+set DESTINATIONS;
+param supply{ORIGINS};
+param demand{DESTINATIONS};
+param cost{ORIGINS, DESTINATIONS};
+var ship{o in ORIGINS, d in DESTINATIONS} >= 0;
+minimize total_cost:
+    sum{o in ORIGINS, d in DESTINATIONS} cost[o, d] * ship[o, d];
+subject to supply_cap{o in ORIGINS}:
+    sum{d in DESTINATIONS} ship[o, d] <= supply[o];
+subject to demand_fill{d in DESTINATIONS}:
+    sum{o in ORIGINS} ship[o, d] = demand[d];
+"""
+    compiled = compile_orx_model(parse_orx_model_v2(source))
+
+    assert compiled.vars[0].index_sets == ("ORIGINS", "DESTINATIONS")
+    assert compiled.constraints[0].iterators[0].name == "o"
+    assert compiled.constraints[1].iterators[0].name == "d"
 
 
 def test_study_planner_tutorial_bundle_matches_compact_bundle() -> None:

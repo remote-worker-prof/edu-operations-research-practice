@@ -1,0 +1,18 @@
+start: edit_command
+     | json_command
+     | set_command
+     | raw_json_command
+     | text_command
+
+edit_command: EDIT WS TAIL
+json_command: JSON WS TAIL
+set_command: SET WS TAIL
+raw_json_command: JSON_OBJECT
+text_command: TAIL
+
+EDIT.20: /(?i:edit)\b/
+JSON.20: /(?i:json)\b/
+SET.20: /(?i:set)\b/
+JSON_OBJECT.10: /\{[\s\S]*\}/
+TAIL.1: /[\s\S]+/
+WS: /[ \t]+/

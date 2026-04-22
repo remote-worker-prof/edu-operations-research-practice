@@ -1,0 +1,14 @@
+sets:
+  PRODUCTS: [A, B]
+params:
+  profit:
+    A: 8
+    B: 5
+  labor_hours:
+    A: 2
+    B: 1
+  material_units:
+    A: 1
+    B: 2
+  labor_capacity: 12
+  material_capacity: 12

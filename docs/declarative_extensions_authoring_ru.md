@@ -1,17 +1,24 @@
-# Декларативные extensions для студентов: понятный вход без Python
+# Student Math v2: guide для начинающих
 
-## Главная идея
-Теперь у нас два уровня описания extension:
+## Зачем мы поменяли DSL
+Старый путь был полезным промежуточным шагом, но у него были три проблемы:
+- математическая постановка смешивалась с логикой показа результата;
+- `extension.yaml` заставлял думать про UI раньше, чем про саму задачу;
+- грамматика была хуже читаема, чем привычная algebraic notation из учебников.
 
-- `student_v1` — короткий и дружелюбный формат для студентов.
-- `expert_v1` — полный явный формат для сложных случаев и внутренней отладки.
-
-Для большинства учебных работ студенту нужен именно `student_v1`.
-
-## Ментальная схема, которую нужно запомнить
-- `extension.yaml` отвечает за то, **что пользователь вводит** и **что приложение потом показывает**.
-- `model.orx` отвечает за то, **какая математическая модель решается**.
+Теперь основной student-facing путь такой:
+- `model.orx` — только математическая постановка LP-задачи;
+- `extension.yaml` — только ввод, подписи, presets и display-описание;
 - Python студенту не нужен.
+
+## Ментальная схема, которую надо запомнить
+1. Сначала вы думаете про математику.
+2. Потом только описываете, как эти математические символы вводятся в приложении.
+3. И только потом настраиваете, что именно приложение покажет после решения.
+
+Коротко:
+- `model.orx` отвечает за вопрос: **что считает модель**.
+- `extension.yaml` отвечает за вопросы: **что вводит пользователь** и **что показывает приложение**.
 
 ## Минимальная структура папки
 
@@ -28,8 +35,8 @@ extensions/
       README.ru.md
 ```
 
-## Рекомендуемый старт: scaffold, а не ручное копирование
-Теперь основной путь для студента такой:
+## Рекомендуемый старт
+Начинать теперь нужно не с копирования старой папки, а со scaffold-команды:
 
 ```bash
 make extension-scaffold \
@@ -41,167 +48,188 @@ make extension-scaffold \
   SET_SYMBOL=CONSULTATIONS
 ```
 
-Эта команда сразу создаст:
-
-- `extensions/consultation_planner/extension.yaml`
-- `extensions/consultation_planner/model.orx`
-- `extensions/consultation_planner/presets/demo.yaml`
-- `extensions/consultation_planner/tutorial/extension.annotated.yaml`
-- `extensions/consultation_planner/tutorial/model.annotated.orx`
-- `extensions/consultation_planner/tutorial/README.ru.md`
-
-После генерации сразу проверьте bundle:
+После этого сразу проверьте bundle:
 
 ```bash
 make extension-check EXT=consultation_planner
 ```
 
-Если всё хорошо, запускайте приложение:
+## Как теперь работать с задачей из учебника
+Самый правильный порядок такой:
 
-```bash
-make dev
+1. Возьмите обычную постановку LP-задачи на бумаге.
+2. Выпишите множества.
+3. Выпишите известные параметры.
+4. Выпишите переменные решения.
+5. Запишите целевую функцию.
+6. Запишите ограничения.
+7. Только после этого откройте `extension.yaml` и опишите ввод/вывод.
+
+Если вы идёте в обратном порядке, почти всегда становится сложнее.
+
+## Как читать `model.orx`
+Читать нужно всегда в одном порядке:
+
+1. `set`
+2. `param`
+3. `var`
+4. `maximize` / `minimize`
+5. `subject to`
+
+### Канонический стиль записи
+Мы используем ASCII algebraic notation, близкую к AMPL/MathProg:
+
+```orx
+set PRODUCTS;
+
+param profit{PRODUCTS};
+param labor_hours{PRODUCTS};
+param labor_capacity;
+
+var make{p in PRODUCTS} >= 0;
+
+maximize total_profit:
+    sum{p in PRODUCTS} profit[p] * make[p];
+
+subject to labor_limit:
+    sum{p in PRODUCTS} labor_hours[p] * make[p] <= labor_capacity;
 ```
 
-## Как выглядит `extension.yaml` в режиме `student_v1`
-В начале файла ставим:
+### Что означают конструкции
+- `set PRODUCTS;` — множество объектов задачи.
+- `param profit{PRODUCTS};` — известные заранее числа, зависящие от объекта.
+- `var make{p in PRODUCTS} >= 0;` — переменные решения.
+- `maximize ...` — целевая функция.
+- `subject to ...` — ограничения.
+- `sum{p in PRODUCTS} ...` — суммирование по множеству.
 
-```yaml
-format: student_v1
-```
+### Важная разница с прежним ORX
+Теперь в `model.orx` не должно быть student-facing `report`-логики.
+Если вы хотите показать итоговую таблицу или summary-значение, это делается в `extension.yaml -> display`.
 
-Дальше остаются только понятные разделы:
+## Как читать `extension.yaml`
+В `student_math_v2` файл intentionally маленький. В нём только четыре раздела:
+- `extension`
+- `inputs`
+- `display`
+- `presets`
 
-- `extension` — имя, описание и подписи для вывода.
-- `wizard` — шаги ввода.
-- `results` — порядок показа итоговых report-ов.
-- `presets` — готовые примеры.
-- `text` — шаблоны пояснений.
+### `extension`
+Здесь лежат:
+- `alias`
+- `title`
+- `description`
+- `labels`
 
-## Как выглядит `wizard`
-Каждый шаг — это либо:
+`labels` нужны только для русских подписей в интерфейсе.
 
-- `fields` — обычные поля;
-- `table` — один ключевой список плюс связанные с ним списки-колонки.
+### `inputs`
+Здесь вы описываете, как символы модели вводятся через UI.
 
-### Вариант с обычными полями
+Есть два основных варианта шага:
+- scalar/vector шаг через `params` и `vectors`;
+- табличный шаг через `table`.
+
+#### Пример scalar/vector шага
 
 ```yaml
 - id: time_budget
   label: Бюджет времени
-  fields:
-    - id: weekly_hours
+  params:
+    - param: weekly_hours
+      field: weekly_hours
       label: Часов в неделю
-      help: Реалистичный недельный лимит.
       type: number
       min: 0.0001
       example: 12
 ```
 
-### Вариант с таблицей
+Здесь главное поле — `param`. Оно ссылается прямо на символ модели.
+
+#### Пример table-шага
 
 ```yaml
 - id: courses
   label: Курсы
   table:
-    id: course_rows
     set: COURSES
     key:
-      id: course_names
+      field: course_names
       label: Названия курсов
       example: Math
     columns:
-      - id: required_hours
+      - param: required_hours
+        field: required_hours
         label: Требуемые часы
         type: number
-        min: 0.0001
         example: 30
 ```
 
-### Что система делает сама
-В `student_v1` движок сам генерирует:
+Здесь:
+- `set` указывает, какое множество мы наполняем;
+- `key` задаёт элементы множества;
+- каждая колонка ссылается на `param` модели.
 
-- линейный порядок шагов;
-- стандартные примеры команд;
-- простые alias для stage;
-- bindings из полей в параметры модели, если имена совпадают;
-- стандартный вывод report-ов.
+### `display`
+Это слой витрины, а не математики.
 
-## Как выглядит `model.orx`
-В v1 оставляем короткие английские ключевые слова:
+Пример:
 
-- `set`
-- `param`
-- `var`
-- `maximize` / `minimize`
-- `st`
-- `report`
-
-### Что нового и более удобного
-1. Можно писать комментарии через `#`.
-2. Можно писать bounds в короткой форме:
-
-```orx
-var study_hours[COURSES] in 0..required_hours[COURSES]
+```yaml
+display:
+  summary:
+    - id: total_available_hours
+      expr: available_hours
+  tables:
+    - id: course_plan
+      rows: c in COURSES
+      columns:
+        - id: course
+          expr: c
+        - id: allocated_hours
+          expr: study_hours[c]
 ```
 
-3. Можно писать табличный report в учебной форме:
+Тут важно помнить:
+- `summary` — отдельные итоговые числа;
+- `tables` — итоговые таблицы;
+- `expr` использует выражения на языке `model.orx`;
+- `display` не меняет саму оптимизационную задачу, а только показывает её результат.
 
-```orx
-report course_plan by c in COURSES:
-    course = c
-    allocated_hours = study_hours[c]
-```
+### `presets`
+Это готовые demo-данные для проверки bundle.
 
-## Что рекомендуется студенту при чтении модели
-Читайте ORX всегда в одном и том же порядке:
+## Как выглядит рабочий цикл студента
+1. Создать scaffold.
+2. Отредактировать `model.orx`.
+3. Привести `extension.yaml` в соответствие с моделью.
+4. Обновить `presets/demo.yaml`.
+5. Обновить tutorial-файлы с комментариями.
+6. Запустить `make extension-check EXT=<alias>`.
+7. Запустить `make dev`.
 
-1. `set` — какие объекты есть в задаче.
-2. `param` — какие числа известны заранее.
-3. `var` — какие числа надо подобрать.
-4. `maximize` / `minimize` — что оптимизируем.
-5. `st` — какими ограничениями связана задача.
-6. `report` — что хотим показать после решения.
+## Как читать ошибки
+Если ошибка пришла из `model.orx`, смотрите в таком порядке:
+1. строка/столбец;
+2. проблемный символ;
+3. какой именно идентификатор не объявлен или где нарушена линейность.
 
-## Учебный образец
-Эталонный пример лежит здесь:
+Если ошибка пришла из `extension.yaml`, почти всегда причина одна из этих:
+- `param` ссылается не на тот символ модели;
+- `set` не существует в `model.orx`;
+- длина списка не совпадает с размером множества;
+- tutorial-версия больше не совпадает с компактной runtime-версией.
 
-- `extensions/study_planner/extension.yaml` — компактная рабочая версия.
-- `extensions/study_planner/model.orx` — компактная математическая модель.
-- `extensions/study_planner/tutorial/extension.annotated.yaml` — версия с подробными комментариями.
-- `extensions/study_planner/tutorial/model.annotated.orx` — подробно прокомментированная модель.
-- `extensions/study_planner/tutorial/README.ru.md` — пошаговое объяснение для начинающих.
+## Что смотреть как эталон
+- `extensions/study_planner/` — основной reference bundle.
+- `docs/examples/student_math_v2/diet_blending/` — blending/diet example.
+- `docs/examples/student_math_v2/production_planning/` — production planning example.
+- `docs/examples/student_math_v2/transportation/` — transportation example.
 
-## Рабочий поток студента
-1. Запустите `make extension-scaffold ...`, чтобы получить готовую заготовку.
-2. Отредактируйте рабочие файлы `extension.yaml` и `model.orx`.
-3. Обновите `presets/demo.yaml`.
-4. Синхронизируйте учебные файлы в `tutorial/`, чтобы комментарии соответствовали рабочей версии.
-5. Проверьте bundle:
+## Старые форматы
+В проекте ещё поддерживаются:
+- `student_v1`
+- `expert_v1`
 
-```bash
-make extension-check EXT=<your_alias>
-```
-
-6. Запустите приложение:
-
-```bash
-make dev
-```
-
-`study_planner` полезно держать рядом как reference example, но копировать его вручную для старта теперь не нужно.
-
-## Что проверяет `make extension-check`
-Теперь валидатор проверяет не только runtime-файлы, но и tutorial-материалы:
-
-- `extension.yaml`
-- `model.orx`
-- `tutorial/extension.annotated.yaml`
-- `tutorial/model.annotated.orx`
-- смысловое совпадение compact и annotated версий
-- прохождение preset-ов
-
-## Что важно помнить
-- `student_v1` не делает DSL слабее: он просто короче и дружелюбнее.
-- Если вашей задаче нужна нестандартная тонкая настройка, можно остаться на `expert_v1`.
-- В текущем релизе поддерживается только continuous LP.
-- Нелинейные конструкции вроде `x * y`, где обе части зависят от переменных решения, не поддерживаются.
+Это сделано ради мягкой миграции и совместимости.
+Но новый рекомендованный путь для студентов — именно `student_math_v2`.

@@ -1,0 +1,52 @@
+start: statement*
+
+statement: set_decl
+         | param_decl
+         | var_decl
+         | objective_decl
+         | constraint_decl
+
+set_decl: "set" IDENT ";"?
+param_decl: "param" IDENT domain_clause? ("=" expr)? ";"?
+var_decl: "var" IDENT iterator_domain? bound_clause? ";"?
+domain_clause: "{" domain_item ("," domain_item)* "}"
+iterator_domain: "{" iterator_item ("," iterator_item)* "}"
+domain_item: IDENT                  -> domain_set
+iterator_item: IDENT "in" IDENT    -> iterator_binding
+bound_clause: GE expr LE expr       -> lower_upper_bound
+            | GE expr               -> lower_bound
+            | LE expr               -> upper_bound
+objective_decl: SENSE IDENT ":" expr ";"?
+constraint_decl: SUBJECT_TO IDENT iterator_domain? ":" expr relation expr ";"?
+
+?expr: add_expr
+?add_expr: add_expr "+" mul_expr   -> add
+         | add_expr "-" mul_expr   -> sub
+         | mul_expr
+?mul_expr: mul_expr "*" unary_expr -> mul
+         | mul_expr "/" unary_expr -> div
+         | unary_expr
+?unary_expr: "-" unary_expr        -> neg
+           | sum_expr
+?sum_expr: "sum" "{" iterator_item ("," iterator_item)* "}" expr -> sum_expr
+         | atom
+?atom: NUMBER                       -> number
+     | IDENT "[" expr_index_list "]" -> indexed_ref
+     | IDENT                        -> name
+     | "(" expr ")"
+
+expr_index_list: IDENT ("," IDENT)*
+
+SENSE: "maximize" | "minimize"
+SUBJECT_TO: /subject\s+to|st|s\.t\./
+LE: "<="
+GE: ">="
+EQ: "="
+relation: LE | GE | EQ
+IDENT: /[A-Za-z_][A-Za-z0-9_]*/
+COMMENT: /#[^\n]*/
+
+%import common.SIGNED_NUMBER -> NUMBER
+%import common.WS
+%ignore WS
+%ignore COMMENT

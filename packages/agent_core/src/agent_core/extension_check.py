@@ -73,7 +73,7 @@ def _validate_tutorial_bundle(
     tutorial_model = "tutorial/model.annotated.orx"
     tutorial_readme = tutorial_dir / "README.ru.md"
 
-    if dsl_format != "student_v1":
+    if dsl_format not in {"student_v1", "student_math_v2"}:
         return 0
 
     missing = [
@@ -88,7 +88,7 @@ def _validate_tutorial_bundle(
     if missing:
         joined = ", ".join(str(path) for path in missing)
         raise DeclarativeBundleError(
-            f"student_v1 bundle `{bundle_root}` должен содержать tutorial-файлы: {joined}"
+            f"student bundle `{bundle_root}` должен содержать tutorial-файлы: {joined}"
         )
 
     tutorial_bundle = load_declarative_bundle(

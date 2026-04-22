@@ -24,3 +24,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_core"]
+include = ["src/agent_core/grammars/*.lark"]

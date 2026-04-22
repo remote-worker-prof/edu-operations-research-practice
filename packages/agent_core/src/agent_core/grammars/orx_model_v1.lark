@@ -1,0 +1,52 @@
+start: statement*
+
+statement: set_decl
+         | param_decl
+         | var_decl
+         | objective_decl
+         | constraint_decl
+         | scalar_report_decl
+         | table_report_decl
+
+set_decl: "set" IDENT
+param_decl: "param" IDENT vector_domain? ("=" expr)?
+var_decl: "var" IDENT vector_domain? bound_clause?
+vector_domain: "[" IDENT "]"
+iterator: "[" IDENT "in" IDENT "]"
+bound_clause: GE expr LE expr        -> lower_upper_bound
+            | GE expr                -> lower_bound
+            | LE expr                -> upper_bound
+objective_decl: SENSE IDENT ":" expr
+constraint_decl: "st" IDENT iterator? ":" expr relation expr
+scalar_report_decl: "report" IDENT "=" expr
+table_report_decl: "report" IDENT iterator ":" "{" report_field ("," report_field)* "}"
+report_field: IDENT "=" expr
+
+?expr: add_expr
+?add_expr: add_expr "+" mul_expr   -> add
+         | add_expr "-" mul_expr   -> sub
+         | mul_expr
+?mul_expr: mul_expr "*" unary_expr -> mul
+         | mul_expr "/" unary_expr -> div
+         | unary_expr
+?unary_expr: "-" unary_expr        -> neg
+           | sum_expr
+?sum_expr: "sum" "(" IDENT "in" IDENT "," expr ")" -> sum_expr
+         | atom
+?atom: NUMBER                       -> number
+     | IDENT "[" IDENT "]"        -> indexed_ref
+     | IDENT                        -> name
+     | "(" expr ")"
+
+SENSE: "maximize" | "minimize"
+LE: "<="
+GE: ">="
+EQ: "="
+relation: LE | GE | EQ
+IDENT: /[A-Za-z_][A-Za-z0-9_]*/
+COMMENT: /#[^\n]*/
+
+%import common.SIGNED_NUMBER -> NUMBER
+%import common.WS
+%ignore WS
+%ignore COMMENT

@@ -1,0 +1,22 @@
+# Пример transportation LP.
+# Нужно перевезти груз из пунктов отправления в пункты назначения
+# с минимальной стоимостью.
+
+set ORIGINS;
+set DESTINATIONS;
+
+param supply{ORIGINS};
+param demand{DESTINATIONS};
+param cost{ORIGINS, DESTINATIONS};
+
+# ship[o, d] — сколько отправить из origin o в destination d.
+var ship{o in ORIGINS, d in DESTINATIONS} >= 0;
+
+minimize total_cost:
+    sum{o in ORIGINS, d in DESTINATIONS} cost[o, d] * ship[o, d];
+
+subject to supply_cap{o in ORIGINS}:
+    sum{d in DESTINATIONS} ship[o, d] <= supply[o];
+
+subject to demand_fill{d in DESTINATIONS}:
+    sum{o in ORIGINS} ship[o, d] = demand[d];

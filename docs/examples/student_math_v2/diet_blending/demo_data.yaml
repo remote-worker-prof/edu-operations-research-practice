@@ -1,0 +1,17 @@
+sets:
+  FOODS: [oats, milk]
+  NUTRIENTS: [protein, calcium]
+params:
+  cost:
+    oats: 3
+    milk: 2
+  content:
+    oats:
+      protein: 4
+      calcium: 1
+    milk:
+      protein: 1
+      calcium: 3
+  min_need:
+    protein: 8
+    calcium: 6

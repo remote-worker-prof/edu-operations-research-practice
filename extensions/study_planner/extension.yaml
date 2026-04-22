@@ -1,4 +1,4 @@
-format: student_v1
+format: student_math_v2
 
 extension:
   alias: study_planner
@@ -7,7 +7,7 @@ extension:
     Учебное расширение для постановки и решения простой LP-задачи:
     распределить ограниченный запас учебных часов по курсам так, чтобы получить
     максимальную суммарную полезность.
-  version: 0.3.0
+  version: 0.4.0
   default_preset: demo
   labels:
     total_available_hours: Всего часов в распоряжении
@@ -24,21 +24,21 @@ extension:
     course_plan.completion_ratio: Доля выполнения
     course_plan.completion_ratio_pct: Выполнение, %
 
-wizard:
+inputs:
   - id: courses
     label: Курсы
     table:
-      id: course_rows
       set: COURSES
       key:
-        id: course_names
+        field: course_names
         label: Названия курсов
         help: Перечислите курсы в том порядке, в котором будете задавать остальные списки.
         example: Math
         aliases:
           - names
       columns:
-        - id: required_hours
+        - param: required_hours
+          field: required_hours
           label: Требуемые часы
           help: Сколько часов нужно, чтобы полностью закрыть каждый курс.
           type: number
@@ -48,8 +48,13 @@ wizard:
             - hours_needed
   - id: time_budget
     label: Бюджет времени
-    fields:
-      - id: weekly_hours
+    aliases:
+      - budget
+      - time budget
+      - бюджет времени
+    params:
+      - param: weekly_hours
+        field: weekly_hours
         label: Часов в неделю
         help: Реалистичный недельный лимит самостоятельной учебы.
         type: number
@@ -57,7 +62,8 @@ wizard:
         example: 12
         aliases:
           - hours_per_week
-      - id: weeks
+      - param: weeks
+        field: weeks
         label: Количество недель
         help: Сколько недель длится ваш план.
         type: number
@@ -67,11 +73,13 @@ wizard:
           - study_weeks
   - id: priorities
     label: Приоритеты
-    fields:
-      - id: priority
+    vectors:
+      - param: priority
+        over: COURSES
+        field: priority
         label: Веса приоритетов
         help: Чем выше число, тем полезнее дополнительный час на этом курсе.
-        type: list[number]
+        type: number
         min: 0.0001
         example:
           - 0.5
@@ -81,24 +89,36 @@ wizard:
           - weights
           - priority_weights
 
-results:
-  show:
-    - total_available_hours
-    - total_required_hours
-    - total_used_hours
-    - remaining_hours
-    - achieved_weighted_score
-    - course_plan
+display:
+  summary:
+    - id: total_available_hours
+      expr: available_hours
+    - id: total_required_hours
+      expr: sum{c in COURSES} required_hours[c]
+    - id: total_used_hours
+      expr: sum{c in COURSES} study_hours[c]
+    - id: remaining_hours
+      expr: available_hours - sum{c in COURSES} study_hours[c]
+    - id: achieved_weighted_score
+      expr: sum{c in COURSES} priority[c] * study_hours[c]
+  tables:
+    - id: course_plan
+      rows: c in COURSES
+      columns:
+        - id: course
+          expr: c
+        - id: required_hours
+          expr: required_hours[c]
+        - id: allocated_hours
+          expr: study_hours[c]
+        - id: gap_hours
+          expr: required_hours[c] - study_hours[c]
+        - id: priority
+          expr: priority[c]
+        - id: completion_ratio
+          expr: study_hours[c] / required_hours[c]
+        - id: completion_ratio_pct
+          expr: 100 * study_hours[c] / required_hours[c]
 
 presets:
   demo: presets/demo.yaml
-
-text:
-  fallback_explain_template: >-
-    Модель распределила {total_used_hours} часов из {total_available_hours} доступных.
-    Суммарная полезность плана равна {achieved_weighted_score}. Смотрите таблицу
-    "План по курсам", чтобы увидеть, какие курсы закрыты полностью, а где остался дефицит.
-  llm_explain_prompt_template: >-
-    Объясни студенту по исследованию операций результат модели study_planner.
-    Подчеркни, почему часы распределились именно так, что означает дефицит часов
-    и как читать итоговую таблицу. Result payload: {result}

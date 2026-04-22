@@ -15,28 +15,14 @@ from dataclasses import dataclass
 
 from lark import Lark, Token, Tree, UnexpectedInput
 
-_GRAMMAR = r"""
-start: edit_command
-     | json_command
-     | set_command
-     | raw_json_command
-     | text_command
+from agent_core.grammar_loader import load_grammar_text
 
-edit_command: EDIT WS TAIL
-json_command: JSON WS TAIL
-set_command: SET WS TAIL
-raw_json_command: JSON_OBJECT
-text_command: TAIL
-
-EDIT.20: /(?i:edit)\b/
-JSON.20: /(?i:json)\b/
-SET.20: /(?i:set)\b/
-JSON_OBJECT.10: /\{[\s\S]*\}/
-TAIL.1: /[\s\S]+/
-WS: /[ \t]+/
-"""
-
-_PARSER = Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False)
+_PARSER = Lark(
+    load_grammar_text("command_surface.lark"),
+    start="start",
+    parser="lalr",
+    maybe_placeholders=False,
+)
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,24 @@
+# Пример blending/diet LP в math-first записи.
+# Сколько купить каждого продукта, чтобы закрыть нормы по нутриентам
+# и при этом минимизировать стоимость.
+
+set FOODS;
+set NUTRIENTS;
+
+# cost[f] — цена единицы продукта f.
+param cost{FOODS};
+
+# content[f, n] — сколько нутриента n содержится в продукте f.
+param content{FOODS, NUTRIENTS};
+
+# min_need[n] — минимально допустимая потребность в нутриенте n.
+param min_need{NUTRIENTS};
+
+# buy[f] — сколько единиц продукта f купить.
+var buy{f in FOODS} >= 0;
+
+minimize total_cost:
+    sum{f in FOODS} cost[f] * buy[f];
+
+subject to nutrition{n in NUTRIENTS}:
+    sum{f in FOODS} content[f, n] * buy[f] >= min_need[n];

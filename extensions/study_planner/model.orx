@@ -1,32 +1,19 @@
-# Компактная учебная LP-модель для study_planner.
+# Math-first LP model for study_planner.
+# This file contains only the optimization model itself.
+# UI input grouping and result display live in extension.yaml.
 
-set COURSES
+set COURSES;
 
-param weekly_hours
-param weeks
-param required_hours[COURSES]
-param priority[COURSES]
-param available_hours = weekly_hours * weeks
+param weekly_hours;
+param weeks;
+param required_hours{COURSES};
+param priority{COURSES};
+param available_hours = weekly_hours * weeks;
 
-var study_hours[COURSES] in 0..required_hours[COURSES]
+var study_hours{c in COURSES} >= 0 <= required_hours[c];
 
 maximize weighted_score:
-    sum(c in COURSES, priority[c] * study_hours[c])
+    sum{c in COURSES} priority[c] * study_hours[c];
 
-st total_hours:
-    sum(c in COURSES, study_hours[c]) <= available_hours
-
-report total_available_hours = available_hours
-report total_required_hours = sum(c in COURSES, required_hours[c])
-report total_used_hours = sum(c in COURSES, study_hours[c])
-report remaining_hours = available_hours - sum(c in COURSES, study_hours[c])
-report achieved_weighted_score = sum(c in COURSES, priority[c] * study_hours[c])
-
-report course_plan by c in COURSES:
-    course = c
-    required_hours = required_hours[c]
-    allocated_hours = study_hours[c]
-    gap_hours = required_hours[c] - study_hours[c]
-    priority = priority[c]
-    completion_ratio = study_hours[c] / required_hours[c]
-    completion_ratio_pct = 100 * study_hours[c] / required_hours[c]
+subject to total_hours:
+    sum{c in COURSES} study_hours[c] <= available_hours;

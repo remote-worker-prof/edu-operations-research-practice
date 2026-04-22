@@ -1,0 +1,14 @@
+set FOODS;
+set NUTRIENTS;
+
+param cost{FOODS};
+param content{FOODS, NUTRIENTS};
+param min_need{NUTRIENTS};
+
+var buy{f in FOODS} >= 0;
+
+minimize total_cost:
+    sum{f in FOODS} cost[f] * buy[f];
+
+subject to nutrition{n in NUTRIENTS}:
+    sum{f in FOODS} content[f, n] * buy[f] >= min_need[n];

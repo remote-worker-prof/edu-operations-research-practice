@@ -1,0 +1,22 @@
+# Пример production planning LP.
+# Нужно выбрать объёмы выпуска так, чтобы максимизировать прибыль,
+# не превысив лимиты по труду и материалам.
+
+set PRODUCTS;
+
+param profit{PRODUCTS};
+param labor_hours{PRODUCTS};
+param material_units{PRODUCTS};
+param labor_capacity;
+param material_capacity;
+
+var make{p in PRODUCTS} >= 0;
+
+maximize total_profit:
+    sum{p in PRODUCTS} profit[p] * make[p];
+
+subject to labor_limit:
+    sum{p in PRODUCTS} labor_hours[p] * make[p] <= labor_capacity;
+
+subject to material_limit:
+    sum{p in PRODUCTS} material_units[p] * make[p] <= material_capacity;

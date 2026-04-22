@@ -1,62 +1,40 @@
 # Это учебная, подробно прокомментированная версия model.orx.
-# Здесь мы показываем модель почти построчно и объясняем, что означает каждая конструкция.
+# Здесь лежит только математическая постановка задачи,
+# максимально близкая к тому, как её можно переписать с бумажки или из учебника.
 
-# 1) Объявляем множество COURSES.
-# В нем будут лежать названия курсов, например Math, ML, Databases.
-set COURSES
+# 1) COURSES — множество курсов.
+set COURSES;
 
-# 2) Объявляем входные параметры.
-# weekly_hours — сколько часов студент готов учиться в неделю.
-param weekly_hours
+# 2) Известные заранее параметры.
+# weekly_hours — сколько часов в неделю реально доступно.
+param weekly_hours;
 
 # weeks — сколько недель длится план.
-param weeks
+param weeks;
 
-# required_hours[COURSES] — для каждого курса храним, сколько часов нужно на его полное закрытие.
-param required_hours[COURSES]
+# required_hours{COURSES} — сколько часов нужно каждому курсу для полного закрытия.
+param required_hours{COURSES};
 
-# priority[COURSES] — для каждого курса задаем вес важности.
-# Чем больше вес, тем полезнее один час учебы на этом курсе.
-param priority[COURSES]
+# priority{COURSES} — насколько важен каждый курс.
+param priority{COURSES};
 
-# available_hours — производный параметр.
-# Его не надо передавать из YAML: он сам считается как weekly_hours * weeks.
-param available_hours = weekly_hours * weeks
+# available_hours — производный scalar-параметр.
+# Мы не вводим его руками, а вычисляем внутри модели как weekly_hours * weeks.
+param available_hours = weekly_hours * weeks;
 
-# 3) Объявляем переменную решения.
-# study_hours[COURSES] — сколько часов реально выделить на каждый курс.
-# Запись `in 0..required_hours[COURSES]` — это student-friendly сокращение:
-# она означает, что каждому курсу нельзя дать меньше 0 часов и нельзя дать больше,
-# чем вообще требуется для полного прохождения.
-var study_hours[COURSES] in 0..required_hours[COURSES]
+# 3) Переменная решения.
+# study_hours[c] — сколько часов реально выделить курсу c.
+# Ограничения на переменную записаны прямо рядом:
+# не меньше 0 и не больше полной потребности required_hours[c].
+var study_hours{c in COURSES} >= 0 <= required_hours[c];
 
 # 4) Целевая функция.
-# Мы хотим максимизировать суммарную полезность плана.
-# Поэтому каждый выделенный час умножаем на вес соответствующего курса.
+# Хотим максимизировать суммарную полезность,
+# то есть сумму weight * allocated_hours по всем курсам.
 maximize weighted_score:
-    sum(c in COURSES, priority[c] * study_hours[c])
+    sum{c in COURSES} priority[c] * study_hours[c];
 
-# 5) Ограничение по общему времени.
-# Сумма часов по всем курсам не должна превышать доступный запас времени.
-st total_hours:
-    sum(c in COURSES, study_hours[c]) <= available_hours
-
-# 6) Скалярные отчеты для красивого вывода в интерфейсе.
-report total_available_hours = available_hours
-report total_required_hours = sum(c in COURSES, required_hours[c])
-report total_used_hours = sum(c in COURSES, study_hours[c])
-report remaining_hours = available_hours - sum(c in COURSES, study_hours[c])
-report achieved_weighted_score = sum(c in COURSES, priority[c] * study_hours[c])
-
-# 7) Табличный отчет.
-# Запись `report ... by c in COURSES:` — это учебный сахар.
-# Она превращается во внутреннее каноническое описание табличного отчета.
-# Ниже перечислены колонки таблицы, которую увидит студент после решения задачи.
-report course_plan by c in COURSES:
-    course = c
-    required_hours = required_hours[c]
-    allocated_hours = study_hours[c]
-    gap_hours = required_hours[c] - study_hours[c]
-    priority = priority[c]
-    completion_ratio = study_hours[c] / required_hours[c]
-    completion_ratio_pct = 100 * study_hours[c] / required_hours[c]
+# 5) Ограничение бюджета времени.
+# Общая сумма выделенных часов не должна превышать available_hours.
+subject to total_hours:
+    sum{c in COURSES} study_hours[c] <= available_hours;
