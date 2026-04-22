@@ -1,0 +1,209 @@
+extension:
+  alias: study_planner
+  title: Study Planner
+  description: >-
+    Учебное расширение для постановки и решения простой LP-задачи распределения
+    учебных часов по курсам с учетом ограниченного бюджета времени.
+  version: 0.2.0
+  default_preset: demo
+  examples:
+    - start
+    - load preset demo
+    - 'json courses {"names":["Math","ML","Databases"],"hours_required":[30,24,18]}'
+    - 'json time_budget {"weekly_hours":12,"weeks":4}'
+    - 'json priorities {"weights":[0.5,0.3,0.2]}'
+    - run
+  field_aliases:
+    courses.names:
+      - course_names
+    courses.hours_required:
+      - required_hours
+      - hours_needed
+    time_budget.weekly_hours:
+      - hours_per_week
+    time_budget.weeks:
+      - num_weeks
+      - study_weeks
+    priorities.weights:
+      - priority_weights
+      - weights_list
+  stage_aliases:
+    courses:
+      - course
+      - courses
+      - курс
+      - курсы
+    time_budget:
+      - time_budget
+      - time budget
+      - time
+      - budget
+      - время
+      - бюджет
+      - бюджет времени
+    priorities:
+      - priority
+      - priorities
+      - приоритет
+      - приоритеты
+      - веса
+  ui_metadata:
+    kind: study_planner
+
+stages:
+  - stage_id: courses
+    label: Курсы
+    aliases:
+      - course
+      - courses
+      - курс
+      - курсы
+    examples:
+      - 'json courses {"names":["Math","ML","Databases"],"hours_required":[30,24,18]}'
+    input_schema:
+      names:
+        min_items: 1
+        unique: true
+      hours_required:
+        min_items: 1
+        item_minimum: 0.0001
+    fields:
+      - field_path: names
+        label: Названия курсов
+        description: Список курсов, между которыми нужно распределить учебные часы.
+        value_type: list[string]
+        aliases:
+          - course_list
+        examples:
+          - '["Math","ML","Databases"]'
+      - field_path: hours_required
+        label: Требуемые часы
+        description: Сколько часов нужно на каждый курс в том же порядке, что и names.
+        value_type: list[number]
+        examples:
+          - '[30,24,18]'
+  - stage_id: time_budget
+    label: Бюджет времени
+    aliases:
+      - time_budget
+      - time budget
+      - time
+      - budget
+      - время
+      - бюджет
+      - бюджет времени
+    examples:
+      - 'json time_budget {"weekly_hours":12,"weeks":4}'
+    input_schema:
+      weekly_hours:
+        minimum: 0.0001
+      weeks:
+        minimum: 0.0001
+    fields:
+      - field_path: weekly_hours
+        label: Часов в неделю
+        description: Реалистичный недельный бюджет времени на самостоятельную учебу.
+        value_type: number
+        aliases:
+          - weekly
+        examples:
+          - '12'
+      - field_path: weeks
+        label: Количество недель
+        description: Горизонт планирования в неделях.
+        value_type: number
+        examples:
+          - '4'
+  - stage_id: priorities
+    label: Приоритеты
+    depends_on:
+      - courses
+    aliases:
+      - priority
+      - priorities
+      - приоритет
+      - приоритеты
+      - веса
+    examples:
+      - 'json priorities {"weights":[0.5,0.3,0.2]}'
+    input_schema:
+      weights:
+        min_items: 1
+        item_minimum: 0.0001
+    fields:
+      - field_path: weights
+        label: Веса приоритетов
+        description: Относительная полезность часа работы по каждому курсу.
+        value_type: list[number]
+        examples:
+          - '[0.5,0.3,0.2]'
+
+bindings:
+  sets:
+    COURSES:
+      from: courses.names
+  params:
+    weekly_hours:
+      from: time_budget.weekly_hours
+    weeks:
+      from: time_budget.weeks
+    required_hours:
+      from: courses.hours_required
+      index_set: COURSES
+    priority:
+      from: priorities.weights
+      index_set: COURSES
+
+results:
+  sections:
+    - section_id: study-plan-summary
+      title: Итог плана
+      blocks:
+        - type: summary
+          text: >-
+            LP-модель максимизировала суммарную учебную ценность часов и показала,
+            какие курсы выгоднее закрывать в первую очередь при ограниченном времени.
+    - section_id: study-plan-budget
+      title: Сводка бюджета
+      blocks:
+        - type: kv
+          items:
+            - key: Доступно часов
+              report: total_available_hours
+            - key: Нужно часов
+              report: total_required_hours
+            - key: Запланировано часов
+              report: total_used_hours
+            - key: Осталось часов
+              report: remaining_hours
+            - key: Достигнутый weighted score
+              report: achieved_weighted_score
+    - section_id: study-plan-table
+      title: Рекомендации по курсам
+      blocks:
+        - type: table
+          report: course_plan
+          columns:
+            - label: Курс
+              field: course
+            - label: Нужно
+              field: required_hours
+            - label: Запланировано
+              field: allocated_hours
+            - label: Нехватка
+              field: gap_hours
+            - label: Выполнение, %
+              field: completion_ratio_pct
+
+presets:
+  demo: presets/demo.yaml
+
+text:
+  fallback_explain_template: >-
+    LP-модель распределила {total_used_hours} часов и получила weighted score
+    {achieved_weighted_score}. Смотрите таблицу по курсам, чтобы понять,
+    где бюджет времени закрывает потребность полностью, а где остается дефицит.
+  llm_explain_prompt_template: >-
+    Explain the result of the declarative study_planner extension for students of
+    operations research. Focus on why the LP allocated hours this way and what the
+    remaining deficits mean. Result payload: {result}

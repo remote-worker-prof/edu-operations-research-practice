@@ -1,16 +1,15 @@
 [project]
 name = "sample-study-planner-extension"
 version = "0.1.0"
-description = "Sample deterministic study-planner extension for the educational agent"
+description = "Compatibility adapter for the declarative study_planner extension"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "agent-core",
   "extension-api",
 ]
 
-[project.entry-points."edu_or_agent.extensions"]
-study_planner = "sample_study_planner_extension:StudyPlannerExtensionProvider"
-
 [tool.uv.sources]
+agent-core = { workspace = true }
 extension-api = { workspace = true }
 
 [build-system]

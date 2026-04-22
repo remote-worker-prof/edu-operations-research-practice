@@ -45,6 +45,8 @@ dependencies = [
     { name = "litellm" },
     { name = "or-core" },
     { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -55,6 +57,8 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.63.7" },
     { name = "or-core", editable = "packages/or_core" },
     { name = "pydantic", specifier = ">=2.11.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "scipy", specifier = ">=1.13.1" },
 ]
 
 [[package]]
@@ -1532,11 +1536,15 @@ name = "sample-study-planner-extension"
 version = "0.1.0"
 source = { editable = "packages/sample_study_planner_extension" }
 dependencies = [
+    { name = "agent-core" },
     { name = "extension-api" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "extension-api", editable = "packages/extension_api" }]
+requires-dist = [
+    { name = "agent-core", editable = "packages/agent_core" },
+    { name = "extension-api", editable = "packages/extension_api" },
+]
 
 [[package]]
 name = "scipy"

@@ -254,8 +254,12 @@ def test_extension_registry_exposes_builtin_preset_loader_when_provider_supports
     assert preset["time_budget"]["weeks"] == 2
 
 
-def test_tolerant_discovery_quarantines_invalid_and_duplicate_extensions() -> None:
+def test_tolerant_discovery_quarantines_invalid_and_duplicate_extensions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
     """Проверяет tolerant startup discovery: good providers survive, broken ones are skipped."""
+    monkeypatch.setattr("agent_core.extensions._default_declarative_bundle_root", lambda: tmp_path)
     report = tolerant_discovery_report(
         entry_points=[
             _FakeEntryPoint(name="study_planner", provider=FakeProvider),
@@ -341,8 +345,10 @@ def test_create_app_attaches_extension_registry_to_app_state() -> None:
 
 def test_create_app_uses_tolerant_startup_discovery_and_still_serves_homepage(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
     """Проверяет, что startup с битым extension не ломает app boot и homepage."""
+    monkeypatch.setattr("agent_core.extensions._default_declarative_bundle_root", lambda: tmp_path)
     monkeypatch.setattr(
         "agent_core.extensions.metadata.entry_points",
         lambda *, group: (

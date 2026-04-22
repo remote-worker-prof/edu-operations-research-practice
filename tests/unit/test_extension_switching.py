@@ -214,11 +214,13 @@ def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:
     sections = runtime.build_result_sections(result)
 
     assert result["total_available_hours"] == 48.0
-    assert result["fully_covered_courses"] == 0
+    assert result["total_required_hours"] == 72.0
+    assert result["achieved_weighted_score"] == 20.4
     assert len(result["course_plan"]) == 3
     assert sections[0].title == "Итог плана"
     assert sections[2].title == "Рекомендации по курсам"
     assert sections[2].blocks[0].rows[0][0] == "Math"
+    assert sections[2].blocks[0].rows[0][2] == 30.0
 
 
 def test_sample_extension_provider_exposes_working_builtin_demo_preset() -> None:

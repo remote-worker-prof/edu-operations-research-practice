@@ -1,0 +1,17 @@
+courses:
+  names:
+    - Math
+    - ML
+    - Databases
+  hours_required:
+    - 30
+    - 24
+    - 18
+time_budget:
+  weekly_hours: 12
+  weeks: 4
+priorities:
+  weights:
+    - 0.5
+    - 0.3
+    - 0.2

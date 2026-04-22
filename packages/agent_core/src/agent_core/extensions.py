@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from importlib import metadata
 from importlib.metadata import EntryPoint
+from pathlib import Path
 from typing import Iterable
 
 from extension_api import (
@@ -15,6 +16,11 @@ from extension_api import (
     ExtensionRegistry,
 )
 
+from agent_core.declarative_extensions import (
+    DeclarativeBundleError,
+    discover_declarative_bundle_roots,
+    load_declarative_provider,
+)
 from agent_core.default_or_extension import DefaultORExtensionProvider
 
 logger = logging.getLogger(__name__)
@@ -52,10 +58,16 @@ def compose_extension_registry(
     return ExtensionRegistry([*_builtin_extensions(), *external.all()])
 
 
+def _default_declarative_bundle_root() -> Path:
+    """Return the default folder where file-based extensions live."""
+    return Path.cwd() / "extensions"
+
+
 def tolerant_discovery_report(
     *,
     group: str = EXTENSION_ENTRY_POINT_GROUP,
     entry_points: Iterable[EntryPoint] | None = None,
+    bundle_root: Path | None = None,
 ) -> ExtensionRegistryLoadReport:
     """Discovers external extensions one-by-one and quarantines broken providers."""
     external_extensions: list[DiscoveredExtension] = []
@@ -79,6 +91,40 @@ def tolerant_discovery_report(
             continue
 
         discovered = discovered_registry.all()[0]
+        if discovered.alias in alias_sources:
+            message = (
+                f"Quarantined extension `{source}` during startup discovery: duplicate alias "
+                f"`{discovered.alias}` conflicts with {alias_sources[discovered.alias]}."
+            )
+            logger.warning(message)
+            warnings.append(message)
+            continue
+
+        alias_sources[discovered.alias] = discovered.source
+        external_extensions.append(discovered)
+
+    resolved_bundle_root = (
+        _default_declarative_bundle_root() if bundle_root is None else bundle_root
+    )
+    for extension_root in discover_declarative_bundle_roots(resolved_bundle_root):
+        source = f"bundle:{extension_root.name}"
+        try:
+            provider = load_declarative_provider(extension_root)
+            manifest = provider.get_manifest()
+            discovered = DiscoveredExtension(
+                alias=manifest.alias,
+                manifest=manifest,
+                provider=provider,
+                entry_point_name=manifest.alias,
+                module=provider.__class__.__module__,
+                source=source,
+            )
+        except (DeclarativeBundleError, ExtensionDiscoveryError, ValueError) as exc:
+            message = f"Quarantined extension `{source}` during startup discovery: {exc}"
+            logger.warning(message)
+            warnings.append(message)
+            continue
+
         if discovered.alias in alias_sources:
             message = (
                 f"Quarantined extension `{source}` during startup discovery: duplicate alias "

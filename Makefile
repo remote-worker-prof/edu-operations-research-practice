@@ -26,7 +26,7 @@ EXTENSIONS_VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos/extensions
 VIDEO_FPS ?= 15
 VIDEO_CASE ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-extensions test-e2e-extensions-demo test-e2e-extensions-video-pack test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack test-e2e-openai-short-demo test-e2e-openai-short-demo-record test-e2e-openai-short-video-pack docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-extensions test-e2e-extensions-demo test-e2e-extensions-video-pack test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack test-e2e-openai-short-demo test-e2e-openai-short-demo-record test-e2e-openai-short-video-pack extension-check docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -256,6 +256,10 @@ test-e2e-openai-short-video-pack: ## Record the compact OpenAI Selenium short vi
 
 docs-check: ## Validate baseline docstring coverage (module + public callables)
 	$(UV) run python scripts/check_doc_coverage.py
+
+extension-check: ## Validate one declarative extension bundle (usage: make extension-check EXT=study_planner)
+	@if [ -z "$(EXT)" ]; then echo "Usage: make extension-check EXT=<alias-or-path>"; exit 1; fi
+	$(UV) run --all-packages python -m agent_core.extension_check $(EXT)
 
 check: lint test ## Fast quality gate (lint + tests)
 
