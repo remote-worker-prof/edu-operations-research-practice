@@ -26,7 +26,7 @@ EXTENSIONS_VIDEO_OUTPUT_DIR ?= .pytest_artifacts/e2e/videos/extensions
 VIDEO_FPS ?= 15
 VIDEO_CASE ?=
 
-.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-extensions test-e2e-extensions-demo test-e2e-extensions-video-pack test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack test-e2e-openai-short-demo test-e2e-openai-short-demo-record test-e2e-openai-short-video-pack extension-check docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
+.PHONY: help install sync dev run doctor lint fmt-check fmt fix test test-unit test-integration test-e2e test-e2e-extensions test-e2e-extensions-demo test-e2e-extensions-video-pack test-e2e-openai test-e2e-openai-demo test-e2e-openai-demo-record test-e2e-openai-video-pack test-e2e-openai-short-demo test-e2e-openai-short-demo-record test-e2e-openai-short-video-pack extension-check extension-scaffold docs-check check check-all require-docker docker-up docker-down docker-logs clean bd-check bd-import bd-flush bd-session-close bd-recover-from-jsonl
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -260,6 +260,18 @@ docs-check: ## Validate baseline docstring coverage (module + public callables)
 extension-check: ## Validate one declarative extension bundle (usage: make extension-check EXT=study_planner)
 	@if [ -z "$(EXT)" ]; then echo "Usage: make extension-check EXT=<alias-or-path>"; exit 1; fi
 	$(UV) run --all-packages python -m agent_core.extension_check $(EXT)
+
+extension-scaffold: ## Generate a new student_v1 scaffold (usage: make extension-scaffold EXT=my_ext TITLE="..." ENTITY_SINGULAR_RU="..." ENTITY_PLURAL_RU="..." RESOURCE_LABEL_RU="..." [SET_SYMBOL=ITEMS])
+	@if [ -z "$(EXT)" ] || [ -z "$(TITLE)" ] || [ -z "$(ENTITY_SINGULAR_RU)" ] || [ -z "$(ENTITY_PLURAL_RU)" ] || [ -z "$(RESOURCE_LABEL_RU)" ]; then \
+		echo 'Usage: make extension-scaffold EXT=<alias> TITLE="..." ENTITY_SINGULAR_RU="..." ENTITY_PLURAL_RU="..." RESOURCE_LABEL_RU="..." [SET_SYMBOL=ITEMS]'; \
+		exit 1; \
+	fi
+	$(UV) run --all-packages python -m agent_core.extension_scaffold "$(EXT)" \
+		--title "$(TITLE)" \
+		--entity-singular-ru "$(ENTITY_SINGULAR_RU)" \
+		--entity-plural-ru "$(ENTITY_PLURAL_RU)" \
+		--resource-label-ru "$(RESOURCE_LABEL_RU)" \
+		--set-symbol "$(if $(SET_SYMBOL),$(SET_SYMBOL),ITEMS)"
 
 check: lint test ## Fast quality gate (lint + tests)
 

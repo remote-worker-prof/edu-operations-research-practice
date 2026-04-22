@@ -28,6 +28,40 @@ extensions/
       README.ru.md
 ```
 
+## Рекомендуемый старт: scaffold, а не ручное копирование
+Теперь основной путь для студента такой:
+
+```bash
+make extension-scaffold \
+  EXT=consultation_planner \
+  TITLE="Планировщик консультаций" \
+  ENTITY_SINGULAR_RU="консультация" \
+  ENTITY_PLURAL_RU="консультации" \
+  RESOURCE_LABEL_RU="часы преподавателя" \
+  SET_SYMBOL=CONSULTATIONS
+```
+
+Эта команда сразу создаст:
+
+- `extensions/consultation_planner/extension.yaml`
+- `extensions/consultation_planner/model.orx`
+- `extensions/consultation_planner/presets/demo.yaml`
+- `extensions/consultation_planner/tutorial/extension.annotated.yaml`
+- `extensions/consultation_planner/tutorial/model.annotated.orx`
+- `extensions/consultation_planner/tutorial/README.ru.md`
+
+После генерации сразу проверьте bundle:
+
+```bash
+make extension-check EXT=consultation_planner
+```
+
+Если всё хорошо, запускайте приложение:
+
+```bash
+make dev
+```
+
 ## Как выглядит `extension.yaml` в режиме `student_v1`
 В начале файла ставим:
 
@@ -138,22 +172,23 @@ report course_plan by c in COURSES:
 - `extensions/study_planner/tutorial/README.ru.md` — пошаговое объяснение для начинающих.
 
 ## Рабочий поток студента
-1. Скопируйте `extensions/study_planner/` в новую папку.
-2. Переименуйте `alias`, `title` и подписи.
-3. Отредактируйте шаги `wizard`.
-4. Перепишите `model.orx` под свою постановку.
-5. Обновите `presets/demo.yaml`.
-6. Проверьте bundle:
+1. Запустите `make extension-scaffold ...`, чтобы получить готовую заготовку.
+2. Отредактируйте рабочие файлы `extension.yaml` и `model.orx`.
+3. Обновите `presets/demo.yaml`.
+4. Синхронизируйте учебные файлы в `tutorial/`, чтобы комментарии соответствовали рабочей версии.
+5. Проверьте bundle:
 
 ```bash
 make extension-check EXT=<your_alias>
 ```
 
-7. Запустите приложение:
+6. Запустите приложение:
 
 ```bash
 make dev
 ```
+
+`study_planner` полезно держать рядом как reference example, но копировать его вручную для старта теперь не нужно.
 
 ## Что проверяет `make extension-check`
 Теперь валидатор проверяет не только runtime-файлы, но и tutorial-материалы:

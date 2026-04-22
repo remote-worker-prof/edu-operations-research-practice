@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from agent_core.declarative_extensions import (
@@ -12,6 +12,14 @@ from agent_core.declarative_extensions import (
     load_declarative_bundle,
     load_declarative_provider,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BundleValidationReport:
+    manifest_alias: str
+    validated_presets: int
+    tutorial_validated: int
+    bundle_root: Path
 
 
 def _bundle_root_from_arg(raw: str) -> Path:
@@ -105,10 +113,26 @@ def _validate_tutorial_bundle(
             "на одних и тех же preset-данных"
         )
     if compact_sections != tutorial_sections:
-        raise DeclarativeBundleError(
-            "Result sections tutorial bundle отличаются от compact bundle"
-        )
+        raise DeclarativeBundleError("Result sections tutorial bundle отличаются от compact bundle")
     return 1
+
+
+def validate_bundle(bundle_root: Path) -> BundleValidationReport:
+    provider = load_declarative_provider(bundle_root)
+    manifest = provider.get_manifest()
+    validated_presets, compact_results, compact_sections = _validate_provider_presets(provider)
+    tutorial_validated = _validate_tutorial_bundle(
+        bundle_root=bundle_root,
+        compact_bundle=provider._bundle,
+        compact_results=compact_results,
+        compact_sections=compact_sections,
+    )
+    return BundleValidationReport(
+        manifest_alias=manifest.alias,
+        validated_presets=validated_presets,
+        tutorial_validated=tutorial_validated,
+        bundle_root=bundle_root,
+    )
 
 
 def main() -> int:
@@ -121,22 +145,15 @@ def main() -> int:
 
     bundle_root = _bundle_root_from_arg(args.extension).resolve()
     try:
-        provider = load_declarative_provider(bundle_root)
-        manifest = provider.get_manifest()
-        validated_presets, compact_results, compact_sections = _validate_provider_presets(provider)
-        tutorial_validated = _validate_tutorial_bundle(
-            bundle_root=bundle_root,
-            compact_bundle=provider._bundle,
-            compact_results=compact_results,
-            compact_sections=compact_sections,
-        )
+        report = validate_bundle(bundle_root)
     except Exception as exc:
         print(f"extension-check failed for `{bundle_root}`: {exc}")
         return 1
 
     print(
-        f"extension-check ok: `{manifest.alias}` ({validated_presets} preset(s) validated, "
-        f"tutorial parity: {tutorial_validated}, bundle root: {bundle_root})"
+        f"extension-check ok: `{report.manifest_alias}` "
+        f"({report.validated_presets} preset(s) validated, "
+        f"tutorial parity: {report.tutorial_validated}, bundle root: {report.bundle_root})"
     )
     return 0
 
