@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from math import isclose
 from typing import Any, Literal, cast
 
-from lark import Lark, Token, Transformer
+from lark import Lark, Token, Transformer, UnexpectedInput
 from scipy.optimize import linprog
 
 
@@ -189,6 +190,205 @@ class _AffineExpr:
     @property
     def has_variables(self) -> bool:
         return bool(self.coefficients)
+
+
+_IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
+_COMMENT_ONLY_RE = re.compile(r"^\s*#")
+_VAR_RANGE_RE = re.compile(
+    rf"^(?P<indent>\s*)var\s+(?P<head>{_IDENT_RE}(?:\[{_IDENT_RE}\])?)\s+in\s+"
+    r"(?P<lower>.+?)\s*\.\.\s*(?P<upper>.+?)\s*$"
+)
+_BLOCK_REPORT_RE = re.compile(
+    rf"^(?P<indent>\s*)report\s+(?P<name>{_IDENT_RE})\s+by\s+"
+    rf"(?P<iterator>{_IDENT_RE})\s+in\s+(?P<set_name>{_IDENT_RE})\s*:\s*$"
+)
+_REPORT_FIELD_RE = re.compile(rf"^\s*(?P<field>{_IDENT_RE})\s*=\s*(?P<expr>.+?)\s*$")
+
+
+def _indent_width(line: str) -> int:
+    return len(line) - len(line.lstrip(" \t"))
+
+
+def _strip_inline_comment(line: str) -> str:
+    if "#" not in line:
+        return line.rstrip()
+    return line.split("#", maxsplit=1)[0].rstrip()
+
+
+def _normalize_bound_sugar_expr(expr: str, *, index_set: str | None) -> str:
+    if index_set is None:
+        return expr.strip()
+    return expr.replace(f"[{index_set}]", "[_]").strip()
+
+
+def _normalize_orx_source(source: str) -> str:
+    lines = source.splitlines()
+    normalized: list[str] = []
+    index = 0
+    while index < len(lines):
+        raw_line = lines[index]
+        stripped_for_match = _strip_inline_comment(raw_line)
+        stripped = stripped_for_match.strip()
+        if not stripped or _COMMENT_ONLY_RE.match(raw_line):
+            normalized.append(raw_line)
+            index += 1
+            continue
+
+        range_match = _VAR_RANGE_RE.match(stripped_for_match)
+        if range_match:
+            head = range_match.group("head")
+            index_set: str | None = None
+            if "[" in head and head.endswith("]"):
+                index_set = head.split("[", maxsplit=1)[1][:-1]
+            lower_expr = _normalize_bound_sugar_expr(
+                range_match.group("lower"),
+                index_set=index_set,
+            )
+            upper_expr = _normalize_bound_sugar_expr(
+                range_match.group("upper"),
+                index_set=index_set,
+            )
+            normalized.append(
+                f"{range_match.group('indent')}var {head} "
+                f">= {lower_expr} <= {upper_expr}"
+            )
+            index += 1
+            continue
+
+        report_match = _BLOCK_REPORT_RE.match(stripped_for_match)
+        if report_match:
+            block_lines = _rewrite_block_report(
+                lines=lines,
+                start_index=index,
+                header_match=report_match,
+            )
+            normalized.extend(block_lines.rewritten_lines)
+            index = block_lines.next_index
+            continue
+
+        normalized.append(raw_line)
+        index += 1
+    return "\n".join(normalized) + ("\n" if source.endswith("\n") else "")
+
+
+@dataclass(frozen=True, slots=True)
+class _BlockRewriteResult:
+    rewritten_lines: tuple[str, ...]
+    next_index: int
+
+
+def _rewrite_block_report(
+    *,
+    lines: list[str],
+    start_index: int,
+    header_match: re.Match[str],
+) -> _BlockRewriteResult:
+    header_indent = _indent_width(lines[start_index])
+    field_indexes: list[int] = []
+    rewritten: list[str] = []
+    index = start_index + 1
+    while index < len(lines):
+        raw_line = lines[index]
+        stripped_commentless = _strip_inline_comment(raw_line)
+        stripped = stripped_commentless.strip()
+        if not stripped:
+            rewritten.append(raw_line)
+            index += 1
+            continue
+        if _COMMENT_ONLY_RE.match(raw_line):
+            rewritten.append(raw_line)
+            index += 1
+            continue
+        if _indent_width(raw_line) <= header_indent:
+            break
+        field_match = _REPORT_FIELD_RE.match(stripped_commentless)
+        if field_match is None:
+            raise DeclarativeModelError(
+                "Ошибка в `report ... by ...:`: каждая строка внутри блока должна иметь вид "
+                f"`поле = выражение` (строка {index + 1}).\n"
+                "Как исправить: оставьте после двоеточия только строки формата "
+                "`name = expr` без лишних слов."
+            )
+        field_indexes.append(len(rewritten))
+        rewritten.append(raw_line)
+        index += 1
+    if not field_indexes:
+        raise DeclarativeModelError(
+            "Ошибка в `report ... by ...:`: после заголовка таблицы не найдено ни одной строки "
+            f"с полями (строка {start_index + 1}).\n"
+            "Как исправить: добавьте хотя бы одну строку вида `name = expr`."
+        )
+
+    header = (
+        f"{header_match.group('indent')}report {header_match.group('name')}"
+        f"[{header_match.group('iterator')} in {header_match.group('set_name')}]: {{"
+    )
+    rewritten.insert(0, header)
+    last_field_position = field_indexes[-1] + 1
+    for original_position in field_indexes[:-1]:
+        line_position = original_position + 1
+        rewritten[line_position] = f"{_strip_inline_comment(rewritten[line_position])},"
+    rewritten[last_field_position] = f"{_strip_inline_comment(rewritten[last_field_position])} }}"
+    return _BlockRewriteResult(rewritten_lines=tuple(rewritten), next_index=index)
+
+
+def _friendly_parse_error(source: str, exc: UnexpectedInput) -> DeclarativeModelError:
+    context = exc.get_context(source, span=40).strip()
+    return DeclarativeModelError(
+        f"Ошибка синтаксиса ORX в строке {exc.line}, столбце {exc.column}.\n"
+        f"Проблемное место: {context}\n"
+        "Как исправить: проверьте ключевые слова, двоеточия, скобки и формат строк "
+        "вида `name = expr` внутри `report ... by ...:`."
+    )
+
+
+def _friendly_model_error(message: str) -> DeclarativeModelError:
+    lowered = message.lower()
+    prefix = "Ошибка ORX-модели."
+    advice = "Проверьте объявление символов и линейность формул."
+
+    if "must declare exactly one objective" in lowered:
+        human = "В модели должна быть ровно одна целевая функция `maximize` или `minimize`."
+        advice = "Оставьте одну цель и удалите лишние объявления."
+    elif "unknown symbol" in lowered:
+        human = "Формула использует имя, которое нигде не объявлено через `set`, `param` или `var`."
+        advice = "Проверьте опечатки и добавьте недостающее объявление."
+    elif "duplicate orx symbol" in lowered:
+        human = "Одно и то же имя объявлено в модели больше одного раза."
+        advice = "Переименуйте одно из объявлений, чтобы каждое имя было уникальным."
+    elif "references unknown set" in lowered:
+        human = "Параметр, переменная или отчёт ссылается на множество, которого нет в модели."
+        advice = "Сначала объявите нужное множество через `set` и только потом используйте его."
+    elif "derived param" in lowered:
+        human = "Производный параметр описан в неподдерживаемой форме."
+        advice = "Оставьте производный `param` скалярным выражением и не передавайте его из YAML."
+    elif "nonlinear product" in lowered:
+        human = "Обнаружено нелинейное произведение. В v1 разрешены только линейные LP-формулы."
+        advice = (
+            "Не умножайте одну переменную решения на другую. "
+            "Используйте только коэффициент * переменная."
+        )
+    elif "division by zero" in lowered:
+        human = "В формуле возникло деление на ноль."
+        advice = "Измените выражение так, чтобы знаменатель не мог стать нулём."
+    elif "duplicate report" in lowered:
+        human = "Одно и то же имя отчёта объявлено больше одного раза."
+        advice = "Переименуйте один из `report`, чтобы имена отчётов не повторялись."
+    elif "table report" in lowered and "at least one field" in lowered:
+        human = "Табличный отчёт объявлен без колонок."
+        advice = "Добавьте хотя бы одну строку `field = expr` в `report ... by ...:`."
+    elif "solve failed" in lowered:
+        human = "Солвер не смог найти допустимое решение для этой LP-задачи."
+        advice = (
+            "Проверьте ограничения: возможно, они противоречат друг другу "
+            "или делают задачу неограниченной."
+        )
+    else:
+        human = message
+
+    if "Как исправить:" in human:
+        return DeclarativeModelError(human)
+    return DeclarativeModelError(f"{prefix} {human}\nКак исправить: {advice}")
 
 
 _GRAMMAR = r"""
@@ -410,19 +610,32 @@ _TRANSFORMER = _OrxTransformer()
 
 def parse_orx_model(source: str) -> ModelProgram:
     """Parse one ORX model into a typed AST/IR candidate."""
+    normalized_source = _normalize_orx_source(source)
     try:
-        tree = _PARSER.parse(source)
+        tree = _PARSER.parse(normalized_source)
         program = cast(ModelProgram, _TRANSFORMER.transform(tree))
-    except DeclarativeModelError:
-        raise
+    except UnexpectedInput as exc:
+        raise _friendly_parse_error(normalized_source, exc) from exc
+    except DeclarativeModelError as exc:
+        raise _friendly_model_error(str(exc)) from exc
     except Exception as exc:  # pragma: no cover - parser library details are unstable
-        raise DeclarativeModelError(f"Invalid ORX model: {exc}") from exc
+        raise DeclarativeModelError(
+            "Ошибка ORX-модели. Парсер не смог разобрать файл.\n"
+            f"Как исправить: проверьте синтаксис и сообщение библиотеки: {exc}"
+        ) from exc
     if program.objective is None:
-        raise DeclarativeModelError("ORX model must declare exactly one objective")
+        raise _friendly_model_error("ORX model must declare exactly one objective")
     return program
 
 
 def compile_orx_model(program: ModelProgram) -> CompiledModel:
+    try:
+        return _compile_orx_model_impl(program)
+    except DeclarativeModelError as exc:
+        raise _friendly_model_error(str(exc)) from exc
+
+
+def _compile_orx_model_impl(program: ModelProgram) -> CompiledModel:
     """Validate one parsed ORX model and return compiled symbolic IR."""
     seen_names: dict[str, str] = {}
     set_names: set[str] = set()
@@ -604,6 +817,13 @@ def compile_orx_model(program: ModelProgram) -> CompiledModel:
 
 
 def solve_compiled_model(model: CompiledModel, bound_input: BoundModelInput) -> SolverResult:
+    try:
+        return _solve_compiled_model_impl(model, bound_input)
+    except DeclarativeModelError as exc:
+        raise _friendly_model_error(str(exc)) from exc
+
+
+def _solve_compiled_model_impl(model: CompiledModel, bound_input: BoundModelInput) -> SolverResult:
     """Compile one bound symbolic model into LP matrices and solve it with SciPy."""
     _validate_bound_input(model=model, bound_input=bound_input)
     param_values = _resolve_param_values(model=model, bound_input=bound_input)

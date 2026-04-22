@@ -154,8 +154,8 @@ def test_sample_manifest_field_aliases_are_canonicalized_in_set_json_and_raw_jso
     assert json_alias.action == "stage_json"
     assert json_alias.patch is not None
     assert json_alias.patch.payload == {
-        "names": ["Math", "ML"],
-        "hours_required": [30, 24],
+        "course_names": ["Math", "ML"],
+        "required_hours": [30, 24],
     }
 
     raw_json_alias = parse_extension_command(
@@ -191,17 +191,17 @@ def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:
     runtime = StudyPlannerExtensionProvider().create_runtime()
     invalid_errors = runtime.validate_draft(
         {
-            "courses": {"names": ["Math", "ML"], "hours_required": [30]},
+            "courses": {"course_names": ["Math", "ML"], "required_hours": [30]},
             "time_budget": {"weekly_hours": 12, "weeks": 4},
-            "priorities": {"weights": [0.6, 0.4]},
+            "priorities": {"priority": [0.6, 0.4]},
         }
     )
     assert invalid_errors["courses"]
 
     valid_draft = {
-        "courses": {"names": ["Math", "ML", "DB"], "hours_required": [30, 24, 18]},
+        "courses": {"course_names": ["Math", "ML", "DB"], "required_hours": [30, 24, 18]},
         "time_budget": {"weekly_hours": 12, "weeks": 4},
-        "priorities": {"weights": [0.5, 0.3, 0.2]},
+        "priorities": {"priority": [0.5, 0.3, 0.2]},
     }
     assert runtime.validate_draft(valid_draft) == {
         "courses": [],
@@ -217,10 +217,10 @@ def test_sample_runtime_validates_lengths_and_builds_result_sections() -> None:
     assert result["total_required_hours"] == 72.0
     assert result["achieved_weighted_score"] == 20.4
     assert len(result["course_plan"]) == 3
-    assert sections[0].title == "Итог плана"
-    assert sections[2].title == "Рекомендации по курсам"
-    assert sections[2].blocks[0].rows[0][0] == "Math"
-    assert sections[2].blocks[0].rows[0][2] == 30.0
+    assert sections[0].title == "Всего часов в распоряжении"
+    assert sections[-1].title == "План по курсам"
+    assert sections[-1].blocks[0].rows[0][0] == "Math"
+    assert sections[-1].blocks[0].rows[0][2] == 30.0
 
 
 def test_sample_extension_provider_exposes_working_builtin_demo_preset() -> None:
@@ -234,7 +234,7 @@ def test_sample_extension_provider_exposes_working_builtin_demo_preset() -> None
         "time_budget": [],
         "priorities": [],
     }
-    assert preset["courses"]["names"] == ["Math", "ML", "Databases"]
+    assert preset["courses"]["course_names"] == ["Math", "ML", "Databases"]
     assert preset["time_budget"]["weeks"] == 4
 
 
@@ -258,7 +258,7 @@ def test_agent_session_and_turn_result_expose_generic_extension_state_snapshot()
     """Проверяет generic extension snapshot в session и turn transport models."""
     session = AgentSession(
         extension_alias="study_planner",
-        extension_draft={"courses": {"names": ["Math"], "hours_required": [30]}},
+        extension_draft={"courses": {"course_names": ["Math"], "required_hours": [30]}},
         extension_result={"total_available_hours": 48.0},
         extension_stage_statuses=[
             {
@@ -271,7 +271,7 @@ def test_agent_session_and_turn_result_expose_generic_extension_state_snapshot()
     )
 
     assert session.extension_state.alias == "study_planner"
-    assert session.extension_state.draft["courses"]["names"] == ["Math"]
+    assert session.extension_state.draft["courses"]["course_names"] == ["Math"]
     assert session.extension_state.result == {"total_available_hours": 48.0}
     assert session.extension_state.stage_statuses[0].stage_id == "courses"
     assert session.extension_state.stage_statuses[0].current is True

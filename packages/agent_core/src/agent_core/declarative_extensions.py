@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -181,6 +182,7 @@ class _TextConfig(BaseModel):
 class DeclarativeBundleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    format: Literal["expert_v1"] = "expert_v1"
     extension: _ExtensionMetaConfig
     stages: list[_StageConfig]
     bindings: _BindingsConfig
@@ -190,6 +192,112 @@ class DeclarativeBundleConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_default_preset(self) -> "DeclarativeBundleConfig":
+        default_preset = self.extension.default_preset
+        if default_preset is not None and default_preset not in self.presets:
+            raise ValueError(
+                f"extension.default_preset `{default_preset}` must exist in presets"
+            )
+        return self
+
+
+class _StudentExtensionMetaConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias: str
+    title: str
+    description: str
+    version: str = "0.1.0"
+    default_preset: str | None = None
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class _StudentFieldConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    help: str | None = None
+    type: Literal["number", "string", "list[number]", "list[string]"]
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    example: str | int | float | bool | list[str] | list[float] | None = None
+    bind: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
+class _StudentTableKeyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    help: str | None = None
+    example: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
+class _StudentTableColumnConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    help: str | None = None
+    type: Literal["number", "string"]
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    example: str | int | float | bool | None = None
+    bind: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
+class _StudentTableConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    set: str
+    key: _StudentTableKeyConfig
+    columns: list[_StudentTableColumnConfig] = Field(min_length=1)
+
+
+class _StudentStepConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    aliases: list[str] = Field(default_factory=list)
+    fields: list[_StudentFieldConfig] = Field(default_factory=list)
+    table: _StudentTableConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_step_shape(self) -> "_StudentStepConfig":
+        has_fields = bool(self.fields)
+        has_table = self.table is not None
+        if has_fields == has_table:
+            raise ValueError(
+                "wizard step must declare either `fields` or `table`, but not both"
+            )
+        return self
+
+
+class _StudentResultsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    show: list[str] = Field(min_length=1)
+
+
+class StudentBundleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["student_v1"] = "student_v1"
+    extension: _StudentExtensionMetaConfig
+    wizard: list[_StudentStepConfig] = Field(min_length=1)
+    results: _StudentResultsConfig
+    presets: dict[str, str] = Field(default_factory=dict)
+    text: _TextConfig = Field(default_factory=_TextConfig)
+
+    @model_validator(mode="after")
+    def validate_default_preset(self) -> "StudentBundleConfig":
         default_preset = self.extension.default_preset
         if default_preset is not None and default_preset not in self.presets:
             raise ValueError(
@@ -479,29 +587,466 @@ class DeclarativeExtensionRuntime:
         return BoundModelInput(sets=set_values, params=params), {}
 
 
-@lru_cache(maxsize=128)
-def load_declarative_bundle(bundle_root: Path) -> DeclarativeBundle:
+def _load_bundle_config(
+    *, raw_config: dict[str, object], model: CompiledModel, config_path: Path
+) -> DeclarativeBundleConfig:
+    raw_format = raw_config.get("format", "expert_v1")
+    if raw_format == "expert_v1":
+        try:
+            return DeclarativeBundleConfig.model_validate(raw_config)
+        except Exception as exc:  # pragma: no cover - pydantic keeps detailed context already
+            raise DeclarativeBundleError(
+                f"Invalid declarative config `{config_path}`: {exc}"
+            ) from exc
+    if raw_format == "student_v1":
+        try:
+            student_config = StudentBundleConfig.model_validate(raw_config)
+        except Exception as exc:  # pragma: no cover - pydantic keeps detailed context already
+            raise DeclarativeBundleError(
+                f"Invalid student declarative config `{config_path}`: {exc}"
+            ) from exc
+        return _compile_student_bundle_config(student_config, model=model)
+    raise DeclarativeBundleError(
+        f"Unsupported declarative format `{raw_format}` in `{config_path}`. "
+        "Используйте `student_v1` или `expert_v1`."
+    )
+
+
+def _compile_student_bundle_config(
+    config: StudentBundleConfig, *, model: CompiledModel
+) -> DeclarativeBundleConfig:
+    stages: list[_StageConfig] = []
+    set_bindings: dict[str, _SetBindingConfig] = {}
+    param_bindings: dict[str, _ParamBindingConfig] = {}
+    step_ids: list[str] = []
+    for index, step in enumerate(config.wizard):
+        depends_on = [config.wizard[index - 1].id] if index > 0 else []
+        step_ids.append(step.id)
+        if step.table is not None:
+            stage_config, stage_set_bindings, stage_param_bindings = _compile_student_table_step(
+                step=step, model=model, depends_on=depends_on
+            )
+        else:
+            stage_config, stage_set_bindings, stage_param_bindings = _compile_student_field_step(
+                step=step, model=model, depends_on=depends_on
+            )
+        stages.append(stage_config)
+        for set_name, binding in stage_set_bindings.items():
+            existing = set_bindings.get(set_name)
+            if existing is not None and existing != binding:
+                raise DeclarativeBundleError(
+                    f"student_v1 пытается по-разному заполнить множество `{set_name}`"
+                )
+            set_bindings[set_name] = binding
+        for param_name, binding in stage_param_bindings.items():
+            existing = param_bindings.get(param_name)
+            if existing is not None and existing != binding:
+                raise DeclarativeBundleError(
+                    f"student_v1 пытается по-разному заполнить параметр `{param_name}`"
+                )
+            param_bindings[param_name] = binding
+
+    extension_examples = _student_manifest_examples(config)
+    extension_labels = dict(config.extension.labels)
+    ui_metadata = {
+        "kind": config.extension.alias,
+        "dsl_format": "student_v1",
+        "wizard_mode": "linear",
+        "wizard_steps": step_ids,
+    }
+    return DeclarativeBundleConfig(
+        format="expert_v1",
+        extension=_ExtensionMetaConfig(
+            alias=config.extension.alias,
+            title=config.extension.title,
+            description=config.extension.description,
+            version=config.extension.version,
+            default_preset=config.extension.default_preset,
+            labels=extension_labels,
+            examples=extension_examples,
+            ui_metadata=ui_metadata,
+        ),
+        stages=stages,
+        bindings=_BindingsConfig(sets=set_bindings, params=param_bindings),
+        results=_compile_student_results(config.results, model=model, labels=extension_labels),
+        presets=config.presets,
+        text=config.text,
+    )
+
+
+def _compile_student_field_step(
+    *,
+    step: _StudentStepConfig,
+    model: CompiledModel,
+    depends_on: list[str],
+) -> tuple[_StageConfig, dict[str, _SetBindingConfig], dict[str, _ParamBindingConfig]]:
+    input_schema: dict[str, Any] = {}
+    fields: list[_StageFieldConfig] = []
+    param_bindings: dict[str, _ParamBindingConfig] = {}
+    for field in step.fields:
+        target = field.bind or field.id
+        declaration = _student_param_target(
+            name=target,
+            model=model,
+            context=f"{step.id}.{field.id}",
+        )
+        input_schema[field.id] = _student_field_schema(field)
+        fields.append(
+            _StageFieldConfig(
+                field_path=field.id,
+                label=field.label,
+                description=field.help,
+                required=field.required,
+                value_type=field.type,
+                aliases=_student_field_aliases(field.id, explicit_aliases=field.aliases),
+                examples=_student_examples(field.example),
+            )
+        )
+        binding = _ParamBindingConfig(
+            **{
+                "from": f"{step.id}.{field.id}",
+                **(
+                    {"index_set": declaration.index_set}
+                    if declaration.index_set is not None
+                    else {}
+                ),
+            }
+        )
+        existing = param_bindings.get(declaration.name)
+        if existing is not None and existing != binding:
+            raise DeclarativeBundleError(
+                f"Поле `{step.id}.{field.id}` конфликтует с другой привязкой параметра "
+                f"`{declaration.name}`."
+            )
+        param_bindings[declaration.name] = binding
+
+    return (
+        _StageConfig(
+            stage_id=step.id,
+            label=step.label,
+            depends_on=depends_on,
+            aliases=_student_stage_aliases(step.id, step.label, explicit_aliases=step.aliases),
+            examples=_student_stage_examples(step),
+            input_schema=input_schema,
+            fields=fields,
+        ),
+        {},
+        param_bindings,
+    )
+
+
+def _compile_student_table_step(
+    *,
+    step: _StudentStepConfig,
+    model: CompiledModel,
+    depends_on: list[str],
+) -> tuple[_StageConfig, dict[str, _SetBindingConfig], dict[str, _ParamBindingConfig]]:
+    table = step.table
+    assert table is not None
+    if table.set not in model.set_names:
+        raise DeclarativeBundleError(
+            f"Таблица `{step.id}.{table.id}` ссылается на неизвестное множество `{table.set}`."
+        )
+
+    input_schema: dict[str, Any] = {
+        table.key.id: {
+            "min_items": 1,
+            "unique": True,
+        }
+    }
+    fields: list[_StageFieldConfig] = [
+        _StageFieldConfig(
+            field_path=table.key.id,
+            label=table.key.label,
+            description=table.key.help,
+            required=True,
+            value_type="list[string]",
+            aliases=_student_field_aliases(table.key.id, explicit_aliases=table.key.aliases),
+            examples=_student_examples(
+                [table.key.example] if table.key.example is not None else None
+            ),
+        )
+    ]
+    param_bindings: dict[str, _ParamBindingConfig] = {}
+    for column in table.columns:
+        declaration = _student_param_target(
+            name=column.bind or column.id,
+            model=model,
+            context=f"{step.id}.{column.id}",
+        )
+        if declaration.index_set is None:
+            raise DeclarativeBundleError(
+                f"Колонка `{step.id}.{column.id}` должна быть связана с векторным param, "
+                f"а `{declaration.name}` является scalar param."
+            )
+        if declaration.index_set != table.set:
+            raise DeclarativeBundleError(
+                f"Колонка `{step.id}.{column.id}` должна ссылаться на set `{table.set}`, "
+                f"а param `{declaration.name}` ожидает `{declaration.index_set}`."
+            )
+        input_schema[column.id] = _student_table_column_schema(column)
+        fields.append(
+            _StageFieldConfig(
+                field_path=column.id,
+                label=column.label,
+                description=column.help,
+                required=column.required,
+                value_type=f"list[{column.type}]",
+                aliases=_student_field_aliases(column.id, explicit_aliases=column.aliases),
+                examples=_student_examples(
+                    [column.example] if column.example is not None else None
+                ),
+            )
+        )
+        param_bindings[declaration.name] = _ParamBindingConfig(
+            **{
+                "from": f"{step.id}.{column.id}",
+                "index_set": table.set,
+            }
+        )
+
+    return (
+        _StageConfig(
+            stage_id=step.id,
+            label=step.label,
+            depends_on=depends_on,
+            aliases=_student_stage_aliases(step.id, step.label, explicit_aliases=step.aliases),
+            examples=_student_stage_examples(step),
+            input_schema=input_schema,
+            fields=fields,
+        ),
+        {table.set: _SetBindingConfig(**{"from": f"{step.id}.{table.key.id}"})},
+        param_bindings,
+    )
+
+
+def _compile_student_results(
+    config: _StudentResultsConfig,
+    *,
+    model: CompiledModel,
+    labels: dict[str, str],
+) -> _ResultsConfig:
+    scalar_reports = {report.name for report in model.scalar_reports}
+    table_reports = {report.name: report for report in model.table_reports}
+    sections: list[_ResultSectionConfig] = []
+    seen: set[str] = set()
+    for report_name in config.show:
+        if report_name in seen:
+            raise DeclarativeBundleError(
+                f"results.show содержит дублирующийся report `{report_name}`"
+            )
+        seen.add(report_name)
+        title = labels.get(report_name, _humanize_identifier(report_name))
+        section_id = f"student-report-{report_name}"
+        if report_name in scalar_reports:
+            sections.append(
+                _ResultSectionConfig(
+                    section_id=section_id,
+                    title=title,
+                    blocks=[
+                        _KVBlockConfig(
+                            title=None,
+                            items=[_KVItemConfig(key=title, report=report_name)],
+                        )
+                    ],
+                )
+            )
+            continue
+        report = table_reports.get(report_name)
+        if report is None:
+            raise DeclarativeBundleError(
+                f"results.show ссылается на неизвестный report `{report_name}`."
+            )
+        sections.append(
+            _ResultSectionConfig(
+                section_id=section_id,
+                title=title,
+                blocks=[
+                    _TableBlockConfig(
+                        title=None,
+                        report=report_name,
+                        columns=[
+                            _TableColumnConfig(
+                                label=labels.get(
+                                    f"{report_name}.{field.name}",
+                                    _humanize_identifier(field.name),
+                                ),
+                                field=field.name,
+                            )
+                            for field in report.fields
+                        ],
+                    )
+                ],
+            )
+        )
+    return _ResultsConfig(sections=sections)
+
+
+def _student_param_target(*, name: str, model: CompiledModel, context: str) -> Any:
+    declaration = next((param for param in model.params if param.name == name), None)
+    if declaration is None:
+        raise DeclarativeBundleError(
+            f"Не удалось автоматически привязать `{context}` к param `{name}`. "
+            "Проверьте имя поля или добавьте `bind`."
+        )
+    if declaration.expr is not None:
+        raise DeclarativeBundleError(
+            f"`{context}` нельзя привязать к derived param `{name}`. "
+            "Derived param нужно вычислять внутри model.orx."
+        )
+    return declaration
+
+
+def _student_field_schema(field: _StudentFieldConfig) -> dict[str, Any]:
+    schema: dict[str, Any] = {}
+    if field.type in {"number", "list[number]"}:
+        if field.min is not None:
+            schema["minimum" if field.type == "number" else "item_minimum"] = field.min
+        if field.max is not None:
+            schema["maximum" if field.type == "number" else "item_maximum"] = field.max
+    if field.type.startswith("list["):
+        schema["min_items"] = 1
+        if field.type == "list[string]":
+            schema["unique"] = field.id.endswith("_names") or field.id in {"names", "course_names"}
+    return schema
+
+
+def _student_table_column_schema(column: _StudentTableColumnConfig) -> dict[str, Any]:
+    schema: dict[str, Any] = {"min_items": 1}
+    if column.type == "number":
+        if column.min is not None:
+            schema["item_minimum"] = column.min
+        if column.max is not None:
+            schema["item_maximum"] = column.max
+    return schema
+
+
+def _student_stage_examples(step: _StudentStepConfig) -> list[str]:
+    payload: dict[str, Any] = {}
+    if step.table is not None:
+        table = step.table
+        if table.key.example is None:
+            return []
+        payload[table.key.id] = [table.key.example]
+        for column in table.columns:
+            if column.example is None:
+                return []
+            payload[column.id] = [column.example]
+    else:
+        for field in step.fields:
+            if field.example is None:
+                return []
+            payload[field.id] = field.example
+    return [f"json {step.id} {json.dumps(payload, ensure_ascii=False)}"]
+
+
+def _student_manifest_examples(config: StudentBundleConfig) -> list[str]:
+    examples = ["start"]
+    if config.extension.default_preset is not None:
+        examples.append(f"load preset {config.extension.default_preset}")
+    for step in config.wizard:
+        examples.extend(_student_stage_examples(step))
+    examples.append("run")
+    return examples
+
+
+def _student_stage_aliases(
+    stage_id: str, label: str, *, explicit_aliases: list[str] | None = None
+) -> list[str]:
+    aliases: list[str] = []
+    seen: set[str] = set()
+    for raw in (
+        stage_id,
+        stage_id.replace("_", " "),
+        *stage_id.split("_"),
+        label,
+        *label.split(),
+        *(explicit_aliases or []),
+    ):
+        candidate = raw.strip().lower()
+        if not candidate or candidate in seen:
+            continue
+        if candidate == stage_id.lower() or candidate == label.strip().lower():
+            continue
+        aliases.append(candidate)
+        seen.add(candidate)
+    return aliases
+
+
+def _student_field_aliases(
+    field_id: str, *, explicit_aliases: list[str] | None = None
+) -> list[str]:
+    aliases: list[str] = []
+    seen: set[str] = set()
+    tokens = [token for token in field_id.split("_") if token]
+    spaced = " ".join(tokens)
+    if spaced and spaced != field_id:
+        aliases.append(spaced)
+        seen.add(spaced)
+    if len(tokens) == 2:
+        reversed_snake = f"{tokens[1]}_{tokens[0]}"
+        if reversed_snake != field_id:
+            aliases.append(reversed_snake)
+            seen.add(reversed_snake)
+    for alias in explicit_aliases or []:
+        normalized = alias.strip()
+        if not normalized or normalized == field_id or normalized in seen:
+            continue
+        aliases.append(normalized)
+        seen.add(normalized)
+    return aliases
+
+
+def _student_examples(example: object) -> list[str]:
+    if example is None:
+        return []
+    rendered = json.dumps(example, ensure_ascii=False)
+    return [rendered]
+
+
+def _humanize_identifier(value: str) -> str:
+    text = value.replace("_", " ").strip()
+    if not text:
+        return value
+    return text[0].upper() + text[1:]
+
+
+@lru_cache(maxsize=256)
+def load_declarative_bundle(
+    bundle_root: Path,
+    *,
+    config_filename: str = "extension.yaml",
+    model_filename: str = "model.orx",
+) -> DeclarativeBundle:
     """Load, validate, and compile one declarative extension bundle."""
     resolved_root = bundle_root.resolve()
-    config_path = resolved_root / "extension.yaml"
-    model_path = resolved_root / "model.orx"
+    config_path = resolved_root / config_filename
+    model_path = resolved_root / model_filename
     raw_config = _load_yaml_file(config_path)
     if not isinstance(raw_config, dict):
         raise DeclarativeBundleError(f"Declarative config `{config_path}` must be a YAML mapping")
-    try:
-        config = DeclarativeBundleConfig.model_validate(raw_config)
-    except Exception as exc:  # pragma: no cover - pydantic keeps detailed context already
-        raise DeclarativeBundleError(f"Invalid declarative config `{config_path}`: {exc}") from exc
-    manifest = _compile_manifest(config)
     model_source = model_path.read_text(encoding="utf-8")
     model = compile_orx_model(parse_orx_model(model_source))
+    config = _load_bundle_config(raw_config=raw_config, model=model, config_path=config_path)
+    manifest = _compile_manifest(config)
     _validate_bundle_semantics(root=resolved_root, config=config, manifest=manifest, model=model)
     return DeclarativeBundle(root_path=resolved_root, config=config, manifest=manifest, model=model)
 
 
-def load_declarative_provider(bundle_root: Path) -> DeclarativeExtensionProvider:
+def load_declarative_provider(
+    bundle_root: Path,
+    *,
+    config_filename: str = "extension.yaml",
+    model_filename: str = "model.orx",
+) -> DeclarativeExtensionProvider:
     """Load one declarative extension bundle and wrap it as a provider."""
-    return DeclarativeExtensionProvider(load_declarative_bundle(bundle_root))
+    return DeclarativeExtensionProvider(
+        load_declarative_bundle(
+            bundle_root,
+            config_filename=config_filename,
+            model_filename=model_filename,
+        )
+    )
 
 
 def discover_declarative_bundle_roots(root: Path) -> list[Path]:
@@ -735,6 +1280,9 @@ def _validate_field_value(
         minimum = rules.get("minimum")
         if isinstance(minimum, (int, float)) and float(value) < float(minimum):
             errors.append(f"Поле {field.field_path} должно быть >= {minimum}.")
+        maximum = rules.get("maximum")
+        if isinstance(maximum, (int, float)) and float(value) > float(maximum):
+            errors.append(f"Поле {field.field_path} должно быть <= {maximum}.")
         return errors
     if value_type == "string":
         if not isinstance(value, str) or not value.strip():
@@ -756,6 +1304,13 @@ def _validate_field_value(
         ):
             errors.append(
                 f"Все значения {field.field_path} должны быть >= {item_minimum}."
+            )
+        item_maximum = rules.get("item_maximum")
+        if isinstance(item_maximum, (int, float)) and any(
+            item > float(item_maximum) for item in values
+        ):
+            errors.append(
+                f"Все значения {field.field_path} должны быть <= {item_maximum}."
             )
         return errors
     if value_type == "list[string]":

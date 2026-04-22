@@ -348,7 +348,14 @@ def _assert_study_planner_results_rendered(chat_page) -> None:
     titles = [
         element.text for element in chat_page.find_all_by_testid("extension-result-section-title")
     ]
-    assert titles == ["Итог плана", "Сводка бюджета", "Рекомендации по курсам"]
+    assert titles == [
+        "Всего часов в распоряжении",
+        "Всего часов нужно",
+        "Сколько часов распределили",
+        "Сколько часов осталось",
+        "Суммарная полезность плана",
+        "План по курсам",
+    ]
     table_rows = [row.text for row in chat_page.find_all_by_testid("extension-result-table-row")]
     assert any("Math" in row for row in table_rows)
     assert any("24.0" in row or "24" in row for row in table_rows)

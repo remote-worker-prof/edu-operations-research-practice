@@ -768,15 +768,18 @@ def test_api_can_start_new_session_with_sample_extension() -> None:
         payload = response.json()
 
     assert payload["session"]["or_result"] is None
-    assert payload["session"]["extension_state"]["draft"]["courses"]["names"] == [
+    assert payload["session"]["extension_state"]["draft"]["courses"]["course_names"] == [
         "Math",
         "ML",
         "Databases",
     ]
     assert payload["extension_state"]["result"]["total_available_hours"] == 48.0
     assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
-    assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
-    assert payload["session"]["extension_result_sections"][2]["blocks"][0]["rows"][0][0] == "Math"
+    assert (
+        payload["session"]["extension_result_sections"][0]["title"]
+        == "Всего часов в распоряжении"
+    )
+    assert payload["session"]["extension_result_sections"][-1]["blocks"][0]["rows"][0][0] == "Math"
 
 
 def test_api_can_load_sample_extension_default_preset_and_run() -> None:
@@ -794,7 +797,7 @@ def test_api_can_load_sample_extension_default_preset_and_run() -> None:
     session_id = preset_payload["session"]["session_id"]
 
     assert preset_payload["session"]["extension_alias"] == "study_planner"
-    assert preset_payload["session"]["extension_state"]["draft"]["courses"]["names"] == [
+    assert preset_payload["session"]["extension_state"]["draft"]["courses"]["course_names"] == [
         "Math",
         "ML",
         "Databases",
@@ -815,7 +818,10 @@ def test_api_can_load_sample_extension_default_preset_and_run() -> None:
 
     assert payload["extension_state"]["result"]["total_available_hours"] == 48.0
     assert payload["session"]["extension_result"]["total_required_hours"] == 72.0
-    assert payload["session"]["extension_result_sections"][0]["title"] == "Итог плана"
+    assert (
+        payload["session"]["extension_result_sections"][0]["title"]
+        == "Всего часов в распоряжении"
+    )
 
 
 def test_api_sample_extension_accepts_multiword_stage_labels_in_json_and_set() -> None:
@@ -898,15 +904,15 @@ def test_api_sample_extension_canonicalizes_field_aliases_in_json_and_raw_json()
 
     assert payload is not None
     assert payload["session"]["extension_state"]["draft"]["courses"] == {
-        "names": ["Math", "ML", "Databases"],
-        "hours_required": [30, 24, 18],
+        "course_names": ["Math", "ML", "Databases"],
+        "required_hours": [30, 24, 18],
     }
     assert payload["session"]["extension_state"]["draft"]["time_budget"] == {
         "weekly_hours": 12,
         "weeks": 4,
     }
     assert payload["session"]["extension_state"]["draft"]["priorities"] == {
-        "weights": [0.5, 0.3, 0.2]
+        "priority": [0.5, 0.3, 0.2]
     }
     assert payload["session"]["extension_result"]["total_available_hours"] == 48.0
 

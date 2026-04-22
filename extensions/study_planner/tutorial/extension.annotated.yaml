@@ -1,14 +1,31 @@
+# Это учебная, подробно прокомментированная версия файла extension.yaml.
+# Она исполняемая: валидатор должен уметь загрузить ее так же, как и обычный файл.
+# Разница только в том, что здесь мы объясняем почти каждую строку простым русским языком.
+
 format: student_v1
 
 extension:
+  # alias — это короткое техническое имя расширения.
+  # Его видит система, когда ищет extension по папке.
   alias: study_planner
+
+  # title — человеко-понятное название, которое увидит студент в интерфейсе.
   title: Study Planner
+
+  # description — короткое описание смысла модели.
   description: >-
     Учебное расширение для постановки и решения простой LP-задачи:
     распределить ограниченный запас учебных часов по курсам так, чтобы получить
     максимальную суммарную полезность.
+
+  # version — просто версия bundle.
   version: 0.3.0
+
+  # default_preset — какой готовый пример подгружать по команде `load preset demo`.
   default_preset: demo
+
+  # labels — подписи для итоговых report-значений и колонок таблиц.
+  # Слева — техническое имя отчета из model.orx, справа — то, что увидит студент.
   labels:
     total_available_hours: Всего часов в распоряжении
     total_required_hours: Всего часов нужно
@@ -24,20 +41,38 @@ extension:
     course_plan.completion_ratio: Доля выполнения
     course_plan.completion_ratio_pct: Выполнение, %
 
+# wizard — это сценарий ввода данных.
+# Здесь мы говорим движку: какие шаги проходит студент и какие данные вводит на каждом шаге.
 wizard:
+  # Шаг 1. Вводим список курсов и сколько часов нужно на каждый курс.
   - id: courses
     label: Курсы
+
+    # table — удобный способ сказать движку: здесь есть одно множество и несколько списков,
+    # которые должны идти в одном и том же порядке.
     table:
+      # id — внутреннее имя таблицы. Пока оно нужно только как метка внутри DSL.
       id: course_rows
+
+      # set: COURSES означает, что список course_names будет наполнять множество COURSES
+      # из model.orx.
       set: COURSES
+
       key:
+        # key.id — имя поля, в котором лежат элементы множества.
         id: course_names
         label: Названия курсов
         help: Перечислите курсы в том порядке, в котором будете задавать остальные списки.
+
+        # example — пример одного элемента.
+        # Для таблицы валидатор сам превращает его в список из одного элемента.
         example: Math
         aliases:
           - names
+
       columns:
+        # Колонка required_hours автоматически привяжется к param required_hours[COURSES]
+        # в model.orx, потому что имя совпадает.
         - id: required_hours
           label: Требуемые часы
           help: Сколько часов нужно, чтобы полностью закрыть каждый курс.
@@ -46,6 +81,8 @@ wizard:
           example: 30
           aliases:
             - hours_needed
+
+  # Шаг 2. Сколько часов вообще можно распределять.
   - id: time_budget
     label: Бюджет времени
     fields:
@@ -57,6 +94,7 @@ wizard:
         example: 12
         aliases:
           - hours_per_week
+
       - id: weeks
         label: Количество недель
         help: Сколько недель длится ваш план.
@@ -65,6 +103,8 @@ wizard:
         example: 4
         aliases:
           - study_weeks
+
+  # Шаг 3. Насколько важен каждый курс.
   - id: priorities
     label: Приоритеты
     fields:
@@ -81,6 +121,8 @@ wizard:
           - weights
           - priority_weights
 
+# results.show — просто порядок показа report-ов из model.orx.
+# Никакой дополнительной верстки студенту описывать не нужно.
 results:
   show:
     - total_available_hours
@@ -90,9 +132,11 @@ results:
     - achieved_weighted_score
     - course_plan
 
+# presets — готовые демонстрационные входные данные.
 presets:
   demo: presets/demo.yaml
 
+# text — шаблоны пояснений, которые показывает система после решения.
 text:
   fallback_explain_template: >-
     Модель распределила {total_used_hours} часов из {total_available_hours} доступных.

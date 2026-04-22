@@ -1,4 +1,4 @@
-# Declarative LP teaching model for the study planner sample.
+# Компактная учебная LP-модель для study_planner.
 
 set COURSES
 
@@ -8,7 +8,7 @@ param required_hours[COURSES]
 param priority[COURSES]
 param available_hours = weekly_hours * weeks
 
-var study_hours[COURSES] >= 0
+var study_hours[COURSES] in 0..required_hours[COURSES]
 
 maximize weighted_score:
     sum(c in COURSES, priority[c] * study_hours[c])
@@ -16,21 +16,17 @@ maximize weighted_score:
 st total_hours:
     sum(c in COURSES, study_hours[c]) <= available_hours
 
-st course_cap[c in COURSES]:
-    study_hours[c] <= required_hours[c]
-
 report total_available_hours = available_hours
 report total_required_hours = sum(c in COURSES, required_hours[c])
 report total_used_hours = sum(c in COURSES, study_hours[c])
 report remaining_hours = available_hours - sum(c in COURSES, study_hours[c])
 report achieved_weighted_score = sum(c in COURSES, priority[c] * study_hours[c])
 
-report course_plan[c in COURSES]: {
-    course = c,
-    required_hours = required_hours[c],
-    allocated_hours = study_hours[c],
-    gap_hours = required_hours[c] - study_hours[c],
-    priority = priority[c],
-    completion_ratio = study_hours[c] / required_hours[c],
+report course_plan by c in COURSES:
+    course = c
+    required_hours = required_hours[c]
+    allocated_hours = study_hours[c]
+    gap_hours = required_hours[c] - study_hours[c]
+    priority = priority[c]
+    completion_ratio = study_hours[c] / required_hours[c]
     completion_ratio_pct = 100 * study_hours[c] / required_hours[c]
-}
