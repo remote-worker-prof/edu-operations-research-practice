@@ -36,7 +36,9 @@ extensions/
 ```
 
 ## Рекомендуемый старт
-Начинать теперь нужно не с копирования старой папки, а со scaffold-команды:
+Начинать теперь нужно не с копирования старой папки, а со scaffold-команды.
+
+### 1-D шаблон распределения
 
 ```bash
 make extension-scaffold \
@@ -52,6 +54,22 @@ make extension-scaffold \
 
 ```bash
 make extension-check EXT=consultation_planner
+```
+
+### 2-D шаблон транспортной задачи
+
+```bash
+make extension-scaffold \
+  EXT=transportation_demo \
+  TITLE="Транспортная задача" \
+  TEMPLATE_FAMILY=transportation \
+  RESOURCE_LABEL_RU="груз" \
+  ROW_ENTITY_SINGULAR_RU="склад" \
+  ROW_ENTITY_PLURAL_RU="склады" \
+  COL_ENTITY_SINGULAR_RU="магазин" \
+  COL_ENTITY_PLURAL_RU="магазины" \
+  ROW_SET_SYMBOL=ORIGINS \
+  COL_SET_SYMBOL=DESTINATIONS
 ```
 
 ## Как теперь работать с задачей из учебника
@@ -126,9 +144,10 @@ subject to labor_limit:
 ### `inputs`
 Здесь вы описываете, как символы модели вводятся через UI.
 
-Есть два основных варианта шага:
+Есть три основных варианта шага:
 - scalar/vector шаг через `params` и `vectors`;
-- табличный шаг через `table`.
+- табличный шаг через `table`;
+- матричный шаг через `matrix`.
 
 #### Пример scalar/vector шага
 
@@ -170,6 +189,30 @@ subject to labor_limit:
 - `key` задаёт элементы множества;
 - каждая колонка ссылается на `param` модели.
 
+#### Пример matrix-шага
+
+```yaml
+- id: costs
+  label: Матрица тарифов
+  matrix:
+    rows_set: ORIGINS
+    cols_set: DESTINATIONS
+    fields:
+      - param: cost
+        field: cost_matrix
+        label: Стоимость перевозки
+        type: number
+        example:
+          - [4, 6]
+          - [5, 4]
+```
+
+Здесь важно помнить:
+- `rows_set` задаёт порядок строк;
+- `cols_set` задаёт порядок столбцов;
+- вход должен быть именно вложенными списками `[[...], [...]]`;
+- значение `[i][j]` относится к паре “строка i, столбец j”.
+
 ### `display`
 Это слой витрины, а не математики.
 
@@ -192,9 +235,21 @@ display:
 
 Тут важно помнить:
 - `summary` — отдельные итоговые числа;
-- `tables` — итоговые таблицы;
+- `tables` — итоговые таблицы по одному множеству;
+- `matrices` — матричные витрины для 2-D результатов;
 - `expr` использует выражения на языке `model.orx`;
 - `display` не меняет саму оптимизационную задачу, а только показывает её результат.
+
+#### Пример `display.matrices`
+
+```yaml
+display:
+  matrices:
+    - id: shipment_plan
+      rows: o in ORIGINS
+      cols: d in DESTINATIONS
+      cell: ship[o, d]
+```
 
 ### `presets`
 Это готовые demo-данные для проверки bundle.
@@ -218,13 +273,15 @@ display:
 - `param` ссылается не на тот символ модели;
 - `set` не существует в `model.orx`;
 - длина списка не совпадает с размером множества;
+- размер матрицы не совпадает с порядком row/col множеств;
 - tutorial-версия больше не совпадает с компактной runtime-версией.
 
 ## Что смотреть как эталон
 - `extensions/study_planner/` — основной reference bundle.
+- `extensions/transportation/` — reference bundle для 2-D ввода и матричного вывода.
 - `docs/examples/student_math_v2/diet_blending/` — blending/diet example.
 - `docs/examples/student_math_v2/production_planning/` — production planning example.
-- `docs/examples/student_math_v2/transportation/` — transportation example.
+- `docs/examples/student_math_v2/transportation/` — math-only transportation example.
 
 ## Старые форматы
 В проекте ещё поддерживаются:

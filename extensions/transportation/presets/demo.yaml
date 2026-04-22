@@ -1,0 +1,20 @@
+origins:
+  origin_names:
+  - пункт отправления 1
+  - пункт отправления 2
+  supply:
+  - 20
+  - 25
+destinations:
+  destination_names:
+  - пункт назначения 1
+  - пункт назначения 2
+  demand:
+  - 15
+  - 30
+costs:
+  cost_matrix:
+  - - 4
+    - 6
+  - - 5
+    - 4

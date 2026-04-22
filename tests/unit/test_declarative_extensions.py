@@ -38,8 +38,40 @@ def test_tolerant_discovery_report_discovers_file_bundles() -> None:
     """Startup discovery should include declarative bundles alongside the built-in extension."""
     report = tolerant_discovery_report(entry_points=[], bundle_root=_REPO_ROOT / "extensions")
 
-    assert report.registry.aliases() == ["default_or", "study_planner"]
+    assert report.registry.aliases() == ["default_or", "study_planner", "transportation"]
     assert report.warnings == []
+
+
+def test_declarative_transportation_bundle_loads_and_solves_demo_preset() -> None:
+    """The runnable 2-D transportation bundle should validate, solve, and expose semantics."""
+    provider = load_declarative_provider(_REPO_ROOT / "extensions" / "transportation")
+    runtime = provider.create_runtime()
+    preset = provider.load_preset("demo")
+
+    assert runtime.validate_draft(preset) == {
+        "origins": [],
+        "destinations": [],
+        "costs": [],
+    }
+
+    result = runtime.run(runtime.build_runtime_input(preset))
+    sections = runtime.build_result_sections(result)
+    assert result["total_supply"] == 45.0
+    assert result["total_demand"] == 45.0
+    assert result["total_cost"] == pytest.approx(190.0)
+    assert result["shipment_plan"][0]["row_key"] == "пункт отправления 1"
+    assert result["shipment_plan"][0]["col_key"] == "пункт назначения 1"
+    assert sections[-1].blocks[0].columns == [
+        "Пункт отправления",
+        "пункт назначения 1",
+        "пункт назначения 2",
+    ]
+
+    semantics = runtime.build_nl_semantics()
+    assert semantics["mode"] == "declarative_bundle"
+    assert semantics["dsl_format"] == "student_math_v2"
+    assert semantics["inputs"][2]["shape"]["kind"] == "matrix"
+    assert semantics["display"]["matrices"][0]["id"] == "shipment_plan"
 
 
 def test_orx_rejects_unknown_symbols() -> None:
@@ -149,6 +181,20 @@ def test_study_planner_tutorial_bundle_matches_compact_bundle() -> None:
     compact = load_declarative_bundle(_REPO_ROOT / "extensions" / "study_planner")
     annotated = load_declarative_bundle(
         _REPO_ROOT / "extensions" / "study_planner",
+        config_filename="tutorial/extension.annotated.yaml",
+        model_filename="tutorial/model.annotated.orx",
+    )
+
+    assert compact.manifest.model_dump(mode="json") == annotated.manifest.model_dump(mode="json")
+    assert compact.config.model_dump(mode="json") == annotated.config.model_dump(mode="json")
+    assert asdict(compact.model) == asdict(annotated.model)
+
+
+def test_transportation_tutorial_bundle_matches_compact_bundle() -> None:
+    """Annotated transportation files must stay semantically equivalent to compact files."""
+    compact = load_declarative_bundle(_REPO_ROOT / "extensions" / "transportation")
+    annotated = load_declarative_bundle(
+        _REPO_ROOT / "extensions" / "transportation",
         config_filename="tutorial/extension.annotated.yaml",
         model_filename="tutorial/model.annotated.orx",
     )

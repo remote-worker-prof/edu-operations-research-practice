@@ -1,0 +1,104 @@
+# Это учебная, подробно прокомментированная версия extension.yaml
+# для транспортной LP-задачи.
+
+format: student_math_v2
+
+extension:
+  alias: transportation
+  title: Transportation Planner
+  description: >-
+    Учебное расширение для транспортной LP-задачи:
+    как распределить "груз" из "пункты отправления"
+    в "пункты назначения" с минимальной стоимостью.
+  version: 0.1.0
+  default_preset: demo
+  labels:
+    total_supply: Всего доступно (груз)
+    total_demand: Всего требуется (груз)
+    total_shipped: Всего перевезено (груз)
+    total_cost: Итоговая стоимость перевозки
+    shipment_plan: План перевозки
+    shipment_plan.row: Пункт отправления
+
+inputs:
+  # Сначала студент задаёт множество пунктов отправления и их запасы.
+  - id: origins
+    label: Пункты отправления
+    table:
+      set: ORIGINS
+      key:
+        field: origin_names
+        label: Пункты отправления
+        help: >-
+          Перечислите пункты отправления в том порядке,
+          в котором строки потом пойдут в матрице тарифов.
+        example: пункт отправления 1
+      columns:
+        - param: supply
+          field: supply
+          label: Запас (груз)
+          help: >-
+            Сколько ресурса "груз" доступно в каждом пункте отправления.
+          type: number
+          min: 0.0
+          example: 20
+
+  # Потом задаются пункты назначения и их потребности.
+  - id: destinations
+    label: Пункты назначения
+    table:
+      set: DESTINATIONS
+      key:
+        field: destination_names
+        label: Пункты назначения
+        help: >-
+          Перечислите пункты назначения в том порядке,
+          в котором столбцы потом пойдут в матрице тарифов.
+        example: пункт назначения 1
+      columns:
+        - param: demand
+          field: demand
+          label: Потребность (груз)
+          help: >-
+            Сколько ресурса "груз" нужно в каждом пункте назначения.
+          type: number
+          min: 0.0
+          example: 15
+
+  # И только после этого студент задаёт матрицу тарифов.
+  - id: costs
+    label: Матрица тарифов
+    matrix:
+      rows_set: ORIGINS
+      cols_set: DESTINATIONS
+      fields:
+        - param: cost
+          field: cost_matrix
+          label: Стоимость перевозки
+          help: >-
+            Вложенные списки: строки идут по `ORIGINS`,
+            столбцы — по `DESTINATIONS`.
+          type: number
+          min: 0.0
+          example:
+            - [4, 6]
+            - [5, 4]
+
+display:
+  summary:
+    - id: total_supply
+      expr: sum{o in ORIGINS} supply[o]
+    - id: total_demand
+      expr: sum{d in DESTINATIONS} demand[d]
+    - id: total_shipped
+      expr: sum{o in ORIGINS, d in DESTINATIONS} ship[o, d]
+    - id: total_cost
+      expr: sum{o in ORIGINS, d in DESTINATIONS} cost[o, d] * ship[o, d]
+  matrices:
+    - id: shipment_plan
+      rows: o in ORIGINS
+      cols: d in DESTINATIONS
+      cell: ship[o, d]
+
+presets:
+  demo: presets/demo.yaml

@@ -350,3 +350,229 @@ class ExtensionManifest(BaseModel):
                 )
 
         return alias_map
+
+
+class ExtensionSymbolSemantics(BaseModel):
+    """One typed symbol from the declarative math model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: Literal["set", "param", "var", "objective"]
+    dimensions: int = 0
+    index_sets: list[str] = Field(default_factory=list)
+    required_input: bool = False
+    derived: bool = False
+
+
+class ExtensionScalarInputSemantics(BaseModel):
+    """One scalar input bound to a scalar model symbol."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["scalar"] = "scalar"
+    param: str
+    field_path: str
+    label: str
+    help: str | None = None
+    value_type: Literal["number", "string"] = "number"
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    aliases: list[str] = Field(default_factory=list)
+    example: Any = None
+
+
+class ExtensionVectorInputSemantics(BaseModel):
+    """One 1-D input bound to a vector model symbol over one set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["vector"] = "vector"
+    param: str
+    over: str
+    field_path: str
+    label: str
+    help: str | None = None
+    value_type: Literal["number", "string"] = "number"
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    aliases: list[str] = Field(default_factory=list)
+    example: Any = None
+
+
+class ExtensionTableKeySemantics(BaseModel):
+    """One field that populates the elements of a set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["table_key"] = "table_key"
+    set_name: str
+    field_path: str
+    label: str
+    help: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    example: Any = None
+
+
+class ExtensionTableColumnSemantics(BaseModel):
+    """One 1-D column bound to a parameter over the table set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["table_column"] = "table_column"
+    param: str
+    set_name: str
+    field_path: str
+    label: str
+    help: str | None = None
+    value_type: Literal["number", "string"] = "number"
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    aliases: list[str] = Field(default_factory=list)
+    example: Any = None
+
+
+class ExtensionTableInputSemantics(BaseModel):
+    """One student-facing table step for a single set plus 1-D parameters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["table"] = "table"
+    set_name: str
+    key: ExtensionTableKeySemantics
+    columns: list[ExtensionTableColumnSemantics] = Field(default_factory=list)
+
+
+class ExtensionMatrixFieldSemantics(BaseModel):
+    """One matrix-valued field bound to a 2-D parameter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["matrix_field"] = "matrix_field"
+    param: str
+    row_set: str
+    col_set: str
+    field_path: str
+    label: str
+    help: str | None = None
+    value_type: Literal["number", "string"] = "number"
+    required: bool = True
+    min: float | None = None
+    max: float | None = None
+    aliases: list[str] = Field(default_factory=list)
+    example: Any = None
+
+
+class ExtensionMatrixInputSemantics(BaseModel):
+    """One student-facing matrix step over two already-declared sets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["matrix"] = "matrix"
+    row_set: str
+    col_set: str
+    fields: list[ExtensionMatrixFieldSemantics] = Field(min_length=1)
+
+
+ExtensionInputShapeSemantics = Annotated[
+    ExtensionTableInputSemantics | ExtensionMatrixInputSemantics,
+    Field(discriminator="kind"),
+]
+
+
+class ExtensionInputStepSemantics(BaseModel):
+    """One wizard step in the normalized extension semantics layer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str
+    label: str
+    aliases: list[str] = Field(default_factory=list)
+    scalars: list[ExtensionScalarInputSemantics] = Field(default_factory=list)
+    vectors: list[ExtensionVectorInputSemantics] = Field(default_factory=list)
+    shape: ExtensionInputShapeSemantics | None = None
+    example_command: str | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "ExtensionInputStepSemantics":
+        variants = int(bool(self.scalars or self.vectors)) + int(self.shape is not None)
+        if variants != 1:
+            raise ValueError(
+                "ExtensionInputStepSemantics must declare either scalars/vectors or one shape"
+            )
+        return self
+
+
+class ExtensionSummaryDisplaySemantics(BaseModel):
+    """One scalar result view item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["summary"] = "summary"
+    id: str
+    label: str | None = None
+    expr: str
+
+
+class ExtensionDisplayColumnSemantics(BaseModel):
+    """One display column in a 1-D table result view."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str | None = None
+    expr: str
+
+
+class ExtensionTableDisplaySemantics(BaseModel):
+    """One 1-D row-iterated result table."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["table"] = "table"
+    id: str
+    label: str | None = None
+    rows: str
+    columns: list[ExtensionDisplayColumnSemantics] = Field(min_length=1)
+
+
+class ExtensionMatrixDisplaySemantics(BaseModel):
+    """One matrix-style result view compiled into a generic table block."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["matrix"] = "matrix"
+    id: str
+    label: str | None = None
+    rows: str
+    cols: str
+    cell: str
+
+
+class ExtensionDisplaySemantics(BaseModel):
+    """Normalized student-facing display layer for a declarative extension."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: list[ExtensionSummaryDisplaySemantics] = Field(default_factory=list)
+    tables: list[ExtensionTableDisplaySemantics] = Field(default_factory=list)
+    matrices: list[ExtensionMatrixDisplaySemantics] = Field(default_factory=list)
+
+
+class ExtensionBundleSemantics(BaseModel):
+    """Typed semantics payload for declarative extension runtimes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    supported: bool = True
+    mode: Literal["declarative_bundle"] = "declarative_bundle"
+    alias: str
+    dsl_format: str
+    wizard_mode: Literal["linear"] = "linear"
+    stage_ids: list[str] = Field(default_factory=list)
+    symbols: list[ExtensionSymbolSemantics] = Field(default_factory=list)
+    inputs: list[ExtensionInputStepSemantics] = Field(default_factory=list)
+    display: ExtensionDisplaySemantics = Field(default_factory=ExtensionDisplaySemantics)

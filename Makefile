@@ -261,17 +261,27 @@ extension-check: ## Validate one declarative extension bundle (usage: make exten
 	@if [ -z "$(EXT)" ]; then echo "Usage: make extension-check EXT=<alias-or-path>"; exit 1; fi
 	$(UV) run --all-packages python -m agent_core.extension_check $(EXT)
 
-extension-scaffold: ## Generate a new student_v1 scaffold (usage: make extension-scaffold EXT=my_ext TITLE="..." ENTITY_SINGULAR_RU="..." ENTITY_PLURAL_RU="..." RESOURCE_LABEL_RU="..." [SET_SYMBOL=ITEMS])
-	@if [ -z "$(EXT)" ] || [ -z "$(TITLE)" ] || [ -z "$(ENTITY_SINGULAR_RU)" ] || [ -z "$(ENTITY_PLURAL_RU)" ] || [ -z "$(RESOURCE_LABEL_RU)" ]; then \
-		echo 'Usage: make extension-scaffold EXT=<alias> TITLE="..." ENTITY_SINGULAR_RU="..." ENTITY_PLURAL_RU="..." RESOURCE_LABEL_RU="..." [SET_SYMBOL=ITEMS]'; \
+extension-scaffold: ## Generate a new declarative scaffold (allocation or transportation)
+	@if [ -z "$(EXT)" ] || [ -z "$(TITLE)" ] || [ -z "$(RESOURCE_LABEL_RU)" ]; then \
+		echo 'Usage (allocation): make extension-scaffold EXT=<alias> TITLE="..." RESOURCE_LABEL_RU="..." ENTITY_SINGULAR_RU="..." ENTITY_PLURAL_RU="..." [SET_SYMBOL=ITEMS]'; \
+		echo 'Usage (transportation): make extension-scaffold EXT=<alias> TITLE="..." TEMPLATE_FAMILY=transportation RESOURCE_LABEL_RU="..." ROW_ENTITY_SINGULAR_RU="..." ROW_ENTITY_PLURAL_RU="..." COL_ENTITY_SINGULAR_RU="..." COL_ENTITY_PLURAL_RU="..." [ROW_SET_SYMBOL=ORIGINS] [COL_SET_SYMBOL=DESTINATIONS]'; \
 		exit 1; \
 	fi
-	$(UV) run --all-packages python -m agent_core.extension_scaffold "$(EXT)" \
-		--title "$(TITLE)" \
-		--entity-singular-ru "$(ENTITY_SINGULAR_RU)" \
-		--entity-plural-ru "$(ENTITY_PLURAL_RU)" \
-		--resource-label-ru "$(RESOURCE_LABEL_RU)" \
-		--set-symbol "$(if $(SET_SYMBOL),$(SET_SYMBOL),ITEMS)"
+	@bash -lc 'args=("$(EXT)" --title "$(TITLE)" --resource-label-ru "$(RESOURCE_LABEL_RU)" --template-family "$(if $(TEMPLATE_FAMILY),$(TEMPLATE_FAMILY),allocation)"); \
+	if [ "$(if $(TEMPLATE_FAMILY),$(TEMPLATE_FAMILY),allocation)" = "transportation" ]; then \
+		if [ -z "$(ROW_ENTITY_SINGULAR_RU)" ] || [ -z "$(ROW_ENTITY_PLURAL_RU)" ] || [ -z "$(COL_ENTITY_SINGULAR_RU)" ] || [ -z "$(COL_ENTITY_PLURAL_RU)" ]; then \
+			echo "Usage (transportation): make extension-scaffold EXT=<alias> TITLE=\"...\" TEMPLATE_FAMILY=transportation RESOURCE_LABEL_RU=\"...\" ROW_ENTITY_SINGULAR_RU=\"...\" ROW_ENTITY_PLURAL_RU=\"...\" COL_ENTITY_SINGULAR_RU=\"...\" COL_ENTITY_PLURAL_RU=\"...\" [ROW_SET_SYMBOL=ORIGINS] [COL_SET_SYMBOL=DESTINATIONS]"; \
+			exit 1; \
+		fi; \
+		args+=(--row-entity-singular-ru "$(ROW_ENTITY_SINGULAR_RU)" --row-entity-plural-ru "$(ROW_ENTITY_PLURAL_RU)" --col-entity-singular-ru "$(COL_ENTITY_SINGULAR_RU)" --col-entity-plural-ru "$(COL_ENTITY_PLURAL_RU)" --row-set-symbol "$(if $(ROW_SET_SYMBOL),$(ROW_SET_SYMBOL),ORIGINS)" --col-set-symbol "$(if $(COL_SET_SYMBOL),$(COL_SET_SYMBOL),DESTINATIONS)"); \
+	else \
+		if [ -z "$(ENTITY_SINGULAR_RU)" ] || [ -z "$(ENTITY_PLURAL_RU)" ]; then \
+			echo "Usage (allocation): make extension-scaffold EXT=<alias> TITLE=\"...\" RESOURCE_LABEL_RU=\"...\" ENTITY_SINGULAR_RU=\"...\" ENTITY_PLURAL_RU=\"...\" [SET_SYMBOL=ITEMS]"; \
+			exit 1; \
+		fi; \
+		args+=(--entity-singular-ru "$(ENTITY_SINGULAR_RU)" --entity-plural-ru "$(ENTITY_PLURAL_RU)" --set-symbol "$(if $(SET_SYMBOL),$(SET_SYMBOL),ITEMS)"); \
+	fi; \
+	$(UV) run --all-packages python -m agent_core.extension_scaffold "$${args[@]}"'
 
 check: lint test ## Fast quality gate (lint + tests)
 

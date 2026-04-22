@@ -130,6 +130,18 @@ STUDY_COURSES_JSON = _stage_json(
 STUDY_TIME_BUDGET_JSON = _stage_json("time_budget", {"weekly_hours": 12, "weeks": 4})
 STUDY_TIME_BUDGET_SHORTCUT_JSON = json.dumps({"weekly_hours": 12, "weeks": 4}, ensure_ascii=False)
 STUDY_PRIORITIES_JSON = _stage_json("priorities", {"weights": [0.5, 0.3, 0.2]})
+TRANSPORT_ORIGINS_JSON = _stage_json(
+    "origins",
+    {"origin_names": ["North", "South"], "supply": [20, 25]},
+)
+TRANSPORT_DESTINATIONS_JSON = _stage_json(
+    "destinations",
+    {"destination_names": ["East", "West"], "demand": [15, 30]},
+)
+TRANSPORT_COSTS_JSON = _stage_json(
+    "costs",
+    {"cost_matrix": [[4, 6], [5, 4]]},
+)
 
 
 @dataclass(frozen=True)
@@ -361,13 +373,45 @@ def _assert_study_planner_results_rendered(chat_page) -> None:
     assert any("24.0" in row or "24" in row for row in table_rows)
 
 
+def _assert_transportation_results_rendered(chat_page) -> None:
+    """Проверяет generic data-driven matrix results для transportation extension."""
+    assert chat_page.text_of("current-extension-value") == "Transportation Planner (transportation)"
+    titles = [
+        element.text for element in chat_page.find_all_by_testid("extension-result-section-title")
+    ]
+    assert titles == [
+        "Всего доступно (груз)",
+        "Всего требуется (груз)",
+        "Всего перевезено (груз)",
+        "Итоговая стоимость перевозки",
+        "План перевозки",
+    ]
+    table_rows = [row.text for row in chat_page.find_all_by_testid("extension-result-table-row")]
+    assert any("North" in row for row in table_rows)
+    assert any("15.0" in row or "15" in row for row in table_rows)
+
+
 def _draft_from_last_assistant_message(chat_page) -> dict[str, object]:
     """Парсит JSON-представление draft из последнего assistant-сообщения."""
     message = chat_page.last_chat_message(role="assistant")
     prefix = "Текущий draft:\n"
     if prefix not in message:
         raise AssertionError("Последнее assistant-сообщение не содержит сериализованный draft.")
-    return json.loads(message.split(prefix, maxsplit=1)[1])
+    suffix = message.split(prefix, maxsplit=1)[1]
+    depth = 0
+    in_json = False
+    json_chars: list[str] = []
+    for char in suffix:
+        if char == "{":
+            depth += 1
+            in_json = True
+        if in_json:
+            json_chars.append(char)
+        if char == "}":
+            depth -= 1
+            if in_json and depth == 0:
+                break
+    return json.loads("".join(json_chars))
 
 
 @pytest.fixture()
@@ -798,6 +842,7 @@ def test_homepage_shows_extension_selector_and_available_extensions(chat_page) -
     chips = [chip.text for chip in chat_page.find_all_by_testid("available-extension-chip")]
     assert "Default OR Pipeline (default_or)" in chips
     assert "Study Planner (study_planner)" in chips
+    assert "Transportation Planner (transportation)" in chips
     assert chat_page.text_of("current-extension-value") == "Default OR Pipeline (default_or)"
 
 
@@ -818,6 +863,28 @@ def test_sample_extension_command_flow_runs_and_renders_generic_results(chat_pag
 
     chat_page.send_message("run")
     _assert_study_planner_results_rendered(chat_page)
+
+
+@pytest.mark.extensions_e2e
+def test_transportation_extension_matrix_flow_runs_and_renders_generic_results(chat_page) -> None:
+    """Проверяет UI-flow 2-D transportation extension через selector и matrix results."""
+    chat_page.select_extension("transportation")
+    chat_page.send_message("start")
+    assert chat_page.text_of("current-extension-value") == "Transportation Planner (transportation)"
+    assert chat_page.text_of("current-stage-value") == "1) Пункты отправления"
+
+    chat_page.send_message(TRANSPORT_ORIGINS_JSON)
+    chat_page.send_message(TRANSPORT_DESTINATIONS_JSON)
+    chat_page.send_message("show input")
+    assistant_text = chat_page.last_chat_message(role="assistant")
+    assert "ORIGINS" in assistant_text
+    assert "DESTINATIONS" in assistant_text
+    chat_page.send_message(TRANSPORT_COSTS_JSON)
+
+    assert chat_page.text_of("ready-to-run-value") == "Да"
+
+    chat_page.send_message("run")
+    _assert_transportation_results_rendered(chat_page)
 
 
 @pytest.mark.extensions_e2e

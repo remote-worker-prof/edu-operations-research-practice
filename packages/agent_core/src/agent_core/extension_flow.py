@@ -8,9 +8,12 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Callable
 
 from extension_api import (
+    ExtensionBundleSemantics,
     ExtensionManifest,
+    ExtensionMatrixInputSemantics,
     ExtensionRegistry,
     ExtensionRuntime,
+    ExtensionTableInputSemantics,
     PresetLoaderExtensionProvider,
 )
 from or_core.models import ScenarioDraft
@@ -140,10 +143,97 @@ def _append_message(session: AgentSession, role: str, content: str) -> None:
     session.messages.append(ChatMessage(role=role, content=content))
 
 
-def _stage_prompt(manifest: ExtensionManifest, stage_id: str) -> str:
+def _extension_semantics(runtime: ExtensionRuntime) -> ExtensionBundleSemantics | None:
+    """Returns typed declarative semantics when an extension runtime exposes them."""
+    try:
+        raw = runtime.build_nl_semantics()
+    except Exception:  # pragma: no cover - defensive adapter seam
+        return None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return ExtensionBundleSemantics.model_validate(raw)
+    except Exception:
+        return None
+
+
+def _semantics_step(
+    runtime: ExtensionRuntime | None,
+    stage_id: str,
+) -> Any | None:
+    if runtime is None:
+        return None
+    semantics = _extension_semantics(runtime)
+    if semantics is None:
+        return None
+    return next((step for step in semantics.inputs if step.step_id == stage_id), None)
+
+
+def _stage_payload_skeleton(step: Any) -> dict[str, Any]:
+    if step.shape is None:
+        payload: dict[str, Any] = {}
+        for field in step.scalars:
+            payload[field.field_path] = 0 if field.value_type == "number" else ""
+        for field in step.vectors:
+            payload[field.field_path] = [0, 0, 0] if field.value_type == "number" else ["", "", ""]
+        return payload
+    if isinstance(step.shape, ExtensionTableInputSemantics):
+        payload = {step.shape.key.field_path: ["элемент_1", "элемент_2"]}
+        for column in step.shape.columns:
+            payload[column.field_path] = [0, 0] if column.value_type == "number" else ["", ""]
+        return payload
+    if isinstance(step.shape, ExtensionMatrixInputSemantics):
+        payload = {}
+        for field in step.shape.fields:
+            payload[field.field_path] = [[0, 0], [0, 0]]
+        return payload
+    return {}
+
+
+def _stage_expectation_hint(runtime: ExtensionRuntime | None, stage_id: str) -> str:
+    step = _semantics_step(runtime, stage_id)
+    if step is None:
+        return ""
+    if step.shape is None:
+        field_labels = [field.label for field in [*step.scalars, *step.vectors]]
+        return "Ожидаемые поля: " + ", ".join(field_labels) + "."
+    if isinstance(step.shape, ExtensionTableInputSemantics):
+        column_labels = ", ".join(column.label for column in step.shape.columns)
+        return (
+            f"Ожидается таблица по множеству `{step.shape.set_name}`: "
+            f"ключ `{step.shape.key.label}` и колонки {column_labels}."
+        )
+    if isinstance(step.shape, ExtensionMatrixInputSemantics):
+        field_labels = ", ".join(field.label for field in step.shape.fields)
+        return (
+            f"Ожидается матрица для `{field_labels}` по множествам "
+            f"`{step.shape.row_set}` x `{step.shape.col_set}`. "
+            f"Строки идут в порядке `{step.shape.row_set}`, "
+            f"столбцы — в порядке `{step.shape.col_set}`."
+        )
+    return ""
+
+
+def _stage_prompt(
+    manifest: ExtensionManifest,
+    stage_id: str,
+    runtime: ExtensionRuntime | None = None,
+) -> str:
     """Builds a beginner-friendly prompt for one manifest stage."""
     stage = manifest.stage_map()[stage_id]
-    example = stage.examples[0] if stage.examples else f"json {stage_id} {{...}}"
+    step = _semantics_step(runtime, stage_id)
+    example = None
+    if step is not None and step.example_command is not None:
+        example = step.example_command
+    elif step is not None:
+        example = f"json {stage_id} {json.dumps(_stage_payload_skeleton(step), ensure_ascii=False)}"
+    elif stage.examples:
+        example = stage.examples[0]
+    else:
+        example = f"json {stage_id} {{...}}"
+    hint = _stage_expectation_hint(runtime, stage_id)
+    if hint:
+        return f"Заполните stage {stage.label}. {hint} Пример: {example}"
     return f"Заполните stage {stage.label}. Пример: {example}"
 
 
@@ -273,14 +363,18 @@ def _sync_phase_and_summary(session: AgentSession, manifest: ExtensionManifest) 
         session.pre_run_summary = None
 
 
-def _pending_question(session: AgentSession, manifest: ExtensionManifest) -> str:
+def _pending_question(
+    session: AgentSession,
+    manifest: ExtensionManifest,
+    runtime: ExtensionRuntime | None = None,
+) -> str:
     """Returns the next deterministic prompt for the current extension."""
     if session.collection_state.ready_to_run:
         return "Входы валидны. Для запуска расчёта отправьте `run`."
     next_stage = _next_missing_stage(session, manifest)
     if next_stage is None:
         return "Исправьте ошибки во вводе и повторите `run`."
-    return _stage_prompt(manifest, next_stage)
+    return _stage_prompt(manifest, next_stage, runtime)
 
 
 def _handle_start(
@@ -291,7 +385,7 @@ def _handle_start(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime, provider
+    del result, provider
     session.extension_draft = {}
     first_stage = stage_order_for_manifest(manifest)[0]
     session.collection_state.current_stage = _next_missing_stage(session, manifest) or first_stage
@@ -299,7 +393,11 @@ def _handle_start(
     session.validation_errors_by_stage = {}
     session.missing_fields = stage_order_for_manifest(manifest)
     return GenericCollectOutcome(
-        assistant_message=_stage_prompt(manifest, session.collection_state.current_stage or ""),
+        assistant_message=_stage_prompt(
+            manifest,
+            session.collection_state.current_stage or "",
+            runtime,
+        ),
         draft_changed=True,
     )
 
@@ -312,12 +410,12 @@ def _handle_reset(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime, provider
+    del result, provider
     reset_session_for_extension(session, alias=session.extension_alias, manifest=manifest)
     return GenericCollectOutcome(
         assistant_message=(
             "Черновик extension сброшен. "
-            + _stage_prompt(manifest, session.collection_state.current_stage or "")
+            + _stage_prompt(manifest, session.collection_state.current_stage or "", runtime)
         ),
         draft_changed=True,
     )
@@ -331,12 +429,12 @@ def _handle_edit_stage(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del runtime, provider
+    del provider
     if result.stage is None:
         return GenericCollectOutcome(assistant_message="Ошибка ввода: не указан stage для edit.")
     session.collection_state.current_stage = result.stage
     session.collection_state.mode = "wizard"
-    return GenericCollectOutcome(assistant_message=_stage_prompt(manifest, result.stage))
+    return GenericCollectOutcome(assistant_message=_stage_prompt(manifest, result.stage, runtime))
 
 
 def _handle_stage_json(
@@ -396,9 +494,24 @@ def _handle_show_input(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del result, manifest, runtime, provider
+    del result, provider
     rendered = json.dumps(session.extension_draft, ensure_ascii=False, indent=2)
-    return GenericCollectOutcome(assistant_message=f"Текущий draft:\n{rendered}")
+    target_stage = _next_missing_stage(session, manifest) or session.collection_state.current_stage
+    if target_stage is None:
+        return GenericCollectOutcome(assistant_message=f"Текущий draft:\n{rendered}")
+    step = _semantics_step(runtime, target_stage)
+    example = None
+    if step is not None:
+        example = step.example_command or (
+            f"json {target_stage} {json.dumps(_stage_payload_skeleton(step), ensure_ascii=False)}"
+        )
+    hint = _stage_expectation_hint(runtime, target_stage)
+    lines = [f"Текущий draft:\n{rendered}", f"Следующий stage: {target_stage}."]
+    if hint:
+        lines.append(hint)
+    if example is not None:
+        lines.append(f"Пример команды: {example}")
+    return GenericCollectOutcome(assistant_message="\n".join(lines))
 
 
 def _handle_next(
@@ -409,7 +522,7 @@ def _handle_next(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del result, runtime, provider
+    del result, provider
     next_stage = _next_missing_stage(session, manifest)
     session.collection_state.mode = "wizard"
     if next_stage is None:
@@ -417,7 +530,7 @@ def _handle_next(
             assistant_message="Все stages заполнены. Выполните `run` для запуска расчёта."
         )
     session.collection_state.current_stage = next_stage
-    return GenericCollectOutcome(assistant_message=_stage_prompt(manifest, next_stage))
+    return GenericCollectOutcome(assistant_message=_stage_prompt(manifest, next_stage, runtime))
 
 
 def _handle_run(
@@ -438,7 +551,7 @@ def _handle_run(
             )
         return GenericCollectOutcome(
             assistant_message="Нельзя запустить extension: не все входы готовы. "
-            + _stage_prompt(manifest, next_stage)
+            + _stage_prompt(manifest, next_stage, runtime)
         )
 
     try:
@@ -472,13 +585,15 @@ def _handle_help(
     runtime: ExtensionRuntime,
     provider: object,
 ) -> GenericCollectOutcome:
-    del session, result, runtime, provider
+    del result, provider
     stages = ", ".join(stage_order_for_manifest(manifest))
+    current_stage = session.collection_state.current_stage or manifest.topological_stage_ids()[0]
+    example = _stage_prompt(manifest, current_stage, runtime)
     return GenericCollectOutcome(
         assistant_message=(
             "Команды: start, show input, next, run, "
             "edit <stage>, json <stage> {..}, set <stage>.<field> <value>, reset. "
-            f"Доступные stages: {stages}."
+            f"Доступные stages: {stages}. {example}"
         )
     )
 
@@ -659,7 +774,7 @@ def handle_extension_turn(
 
     _recompute_extension_state(session=session, manifest=manifest, runtime=runtime)
     _sync_phase_and_summary(session, manifest)
-    session.pending_question = _pending_question(session, manifest)
+    session.pending_question = _pending_question(session, manifest, runtime)
 
     assistant_message = outcome.assistant_message or session.pending_question
     _append_message(session, "assistant", assistant_message)

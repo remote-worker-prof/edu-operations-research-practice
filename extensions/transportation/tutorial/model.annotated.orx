@@ -1,0 +1,29 @@
+# Это учебная, подробно прокомментированная версия model.orx
+# для транспортной LP-задачи.
+
+set ORIGINS;
+set DESTINATIONS;
+
+# supply[o] — сколько ресурса "груз" есть в пункте отправления o.
+param supply{ORIGINS};
+
+# demand[d] — сколько ресурса "груз" нужно в пункте назначения d.
+param demand{DESTINATIONS};
+
+# cost[o, d] — стоимость перевозки одной единицы из o в d.
+param cost{ORIGINS, DESTINATIONS};
+
+# ship[o, d] — сколько реально отправить из o в d.
+var ship{o in ORIGINS, d in DESTINATIONS} >= 0;
+
+# Цель: минимизировать суммарную стоимость перевозки.
+minimize total_cost:
+    sum{o in ORIGINS, d in DESTINATIONS} cost[o, d] * ship[o, d];
+
+# Из каждого пункта нельзя отправить больше запаса.
+subject to supply_cap{o in ORIGINS}:
+    sum{d in DESTINATIONS} ship[o, d] <= supply[o];
+
+# Каждый пункт назначения должен получить свой спрос полностью.
+subject to demand_fill{d in DESTINATIONS}:
+    sum{o in ORIGINS} ship[o, d] = demand[d];

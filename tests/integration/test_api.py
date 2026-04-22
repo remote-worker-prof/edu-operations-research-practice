@@ -824,6 +824,86 @@ def test_api_can_load_sample_extension_default_preset_and_run() -> None:
     )
 
 
+def test_api_can_run_transportation_extension_with_matrix_inputs() -> None:
+    """Проверяет JSON API happy-path для matrix-based transportation extension."""
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "transportation",
+            "message": "start",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    session_id = payload["session"]["session_id"]
+    assert payload["session"]["extension_alias"] == "transportation"
+    assert payload["session"]["collection_state"]["current_stage"] == "origins"
+
+    commands = [
+        'json origins {"origin_names":["North","South"],"supply":[20,25]}',
+        'json destinations {"destination_names":["East","West"],"demand":[15,30]}',
+        'json costs {"cost_matrix":[[4,6],[5,4]]}',
+        "run",
+    ]
+
+    for command in commands:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "local_default",
+                "extension_alias": "transportation",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+    assert payload["extension_state"]["result"]["total_supply"] == 45.0
+    assert payload["extension_state"]["result"]["total_demand"] == 45.0
+    assert payload["extension_state"]["result"]["total_cost"] == 190.0
+    assert payload["session"]["extension_result_sections"][-1]["blocks"][0]["columns"][0] == (
+        "Пункт отправления"
+    )
+    assert payload["session"]["extension_result_sections"][-1]["blocks"][0]["rows"][0][0] == "North"
+    assert payload["session"]["extension_result_sections"][-1]["blocks"][0]["rows"][0][1] == 15.0
+
+
+def test_api_show_input_for_transportation_mentions_expected_matrix_shape() -> None:
+    """`show input` should explain matrix order for the current transportation stage."""
+    response = client.post(
+        "/api/chat/turn",
+        json={
+            "model_alias": "local_default",
+            "extension_alias": "transportation",
+            "message": "start",
+        },
+    )
+    session_id = response.json()["session"]["session_id"]
+
+    for command in [
+        'json origins {"origin_names":["North","South"],"supply":[20,25]}',
+        'json destinations {"destination_names":["East","West"],"demand":[15,30]}',
+        "show input",
+    ]:
+        response = client.post(
+            "/api/chat/turn",
+            json={
+                "session_id": session_id,
+                "model_alias": "local_default",
+                "extension_alias": "transportation",
+                "message": command,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+    assert "ORIGINS" in payload["assistant_message"]
+    assert "DESTINATIONS" in payload["assistant_message"]
+    assert "cost_matrix" in payload["assistant_message"]
+
+
 def test_api_sample_extension_accepts_multiword_stage_labels_in_json_and_set() -> None:
     """Проверяет multi-word stage labels через JSON API для sample extension."""
     start_response = client.post(

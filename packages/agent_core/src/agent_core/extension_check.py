@@ -57,6 +57,9 @@ def _normalize_bundle(bundle: DeclarativeBundle) -> dict[str, object]:
         "manifest": bundle.manifest.model_dump(mode="json"),
         "config": bundle.config.model_dump(mode="json"),
         "model": asdict(bundle.model),
+        "semantics": (
+            bundle.semantics.model_dump(mode="json") if bundle.semantics is not None else None
+        ),
     }
 
 
