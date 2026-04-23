@@ -23,7 +23,7 @@ from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webapp.main import create_app
 
-from .helpers import ChatPage
+from .helpers import ChatPage, ReactChatPage
 
 _VIDEO_DURATION_TOLERANCE_SECONDS = 1.0
 _MIN_BROWSER_WINDOW_SIDE = 200
@@ -496,6 +496,40 @@ def web_app(scenario_path: Path, extension_registry: ExtensionRegistry | None):
     return create_app(service=service, extension_registry=extension_registry)
 
 
+@pytest.fixture(scope="session")
+def chat_web_static_export_dir() -> Path:
+    """Собирает static export нового React shell для browser cutover-сценариев."""
+    export_dir = Path.cwd() / "apps" / "chat_web" / "out"
+    result = subprocess.run(
+        ["make", "chat-web-build"],
+        capture_output=True,
+        text=True,
+        cwd=Path.cwd(),
+        check=False,
+    )
+    if result.returncode != 0:  # pragma: no cover - depends on local node/npm toolchain
+        stderr = (result.stderr or result.stdout or "").strip()
+        pytest.fail(f"Could not build apps/chat_web static export: {stderr or result.returncode}")
+    if not export_dir.exists():
+        pytest.fail(f"Expected React chat static export at {export_dir}, but it was not created.")
+    return export_dir
+
+
+@pytest.fixture()
+def react_web_app(
+    scenario_path: Path,
+    extension_registry: ExtensionRegistry | None,
+    chat_web_static_export_dir: Path,
+):
+    """Поднимает FastAPI app, который раздаёт собранный React chat shell на `/app/*`."""
+    service = AgentService(scenario_path=scenario_path, extension_registry=extension_registry)
+    return create_app(
+        service=service,
+        extension_registry=extension_registry,
+        chat_web_export_dir=chat_web_static_export_dir,
+    )
+
+
 @pytest.fixture()
 def live_server(web_app) -> str:
     """Запускает живой `uvicorn` server на свободном порту."""
@@ -529,6 +563,41 @@ def live_server(web_app) -> str:
     thread.join(timeout=30)
     if thread.is_alive():  # pragma: no cover - defensive cleanup
         raise RuntimeError("Live server thread did not stop in time.")
+
+
+@pytest.fixture()
+def react_live_server(react_web_app) -> str:
+    """Запускает живой uvicorn server c собранным React shell на `/app/*`."""
+    port = _find_free_port()
+    config = uvicorn.Config(react_web_app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{port}"
+    deadline = time.time() + 20
+    last_error: Exception | None = None
+    while time.time() < deadline:
+        try:
+            response = httpx.get(f"{base_url}/healthz", timeout=1.0, trust_env=False)
+            if response.status_code == 200:
+                break
+        except Exception as exc:  # pragma: no cover - depends on local startup timing
+            last_error = exc
+            time.sleep(0.1)
+    else:  # pragma: no cover - would indicate broken live-server startup
+        server.should_exit = True
+        thread.join(timeout=5)
+        raise RuntimeError(f"React live server did not start successfully: {last_error}")
+
+    yield base_url
+
+    server.should_exit = True
+    thread.join(timeout=30)
+    if thread.is_alive():  # pragma: no cover - defensive cleanup
+        raise RuntimeError("React live server thread did not stop in time.")
 
 
 @pytest.fixture()
@@ -591,4 +660,16 @@ def chat_page(browser, live_server: str, video_capture: BrowserVideoCaptureContr
     page = ChatPage(browser, live_server).open(pause_after_open=False)
     video_capture.start()
     page.pause_after_open()
+    return page
+
+
+@pytest.fixture()
+def react_chat_page(
+    browser,
+    react_live_server: str,
+    video_capture: BrowserVideoCaptureController,
+) -> ReactChatPage:
+    """Готовит page-object для нового React chat shell и стартует запись после render."""
+    page = ReactChatPage(browser, react_live_server).open()
+    video_capture.start()
     return page

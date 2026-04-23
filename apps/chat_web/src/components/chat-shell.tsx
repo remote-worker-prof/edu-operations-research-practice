@@ -80,12 +80,12 @@ export function ChatShell({ threadId, onThreadIdChange }: ChatShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, threadId]);
 
-  async function sendCommand(command: string) {
+  async function sendMessage(message: string) {
     setError(null);
     await appendMessage(
       new TextMessage({
         role: MessageRole.User,
-        content: command,
+        content: message,
       }),
     );
   }
@@ -124,17 +124,17 @@ export function ChatShell({ threadId, onThreadIdChange }: ChatShellProps) {
       defaultOpen
       disableSystemMessage
       labels={{
-        title: "Учебный AI-чат",
+        title: "Учебный AI-чат по исследованию операций",
         initial:
-          "Я веду вас по шагам, а не заставляю помнить команды. Слева выбирайте сценарий, в центре заполняйте формы, справа чат.",
+          "Я веду вас по шагам: слева треды, по центру формы и результаты, справа переписка с ассистентом.",
       }}
       suggestions={[
-        { title: "Подсказка", message: "/help" },
-        { title: "Показать этапы", message: "/show steps" },
-        { title: "Показать черновик", message: "/show draft" },
+        { title: "Помощь", message: "/help" },
+        { title: "Этапы", message: "/show steps" },
+        { title: "Решить", message: "/solve" },
       ]}
     >
-      <main className="chat-shell">
+      <main className="chat-shell" data-testid="chat-web-root">
         <ThreadList
           activeThreadId={threadId}
           onCreate={() => {
@@ -147,16 +147,16 @@ export function ChatShell({ threadId, onThreadIdChange }: ChatShellProps) {
           threads={threads}
         />
         <div className="chat-shell__main">
-          <div className="runtime-banner">
-            <span>CopilotKit runtime</span>
-            <code>{backendRuntimeUrl()}</code>
-          </div>
-          {error ? <div className="error-banner">{error}</div> : null}
+          {error ? (
+            <div className="error-banner" data-testid="chat-shell-error">
+              {error}
+            </div>
+          ) : null}
           <GuidedPanel
             interaction={interaction}
-            onCommand={async (command) => {
+            onMessage={async (message) => {
               try {
-                await sendCommand(command);
+                await sendMessage(message);
               } catch (caught) {
                 setError(
                   caught instanceof Error

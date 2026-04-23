@@ -189,6 +189,101 @@ class AgentService:
         self._store.save(updated)
         return updated
 
+    @staticmethod
+    def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+        """Returns True when any case-normalized marker appears in the message."""
+        return any(marker in text for marker in markers)
+
+    def _render_show_target(
+        self,
+        *,
+        session: AgentSession,
+        target: str,
+    ) -> str:
+        """Renders one canonical `/show ...` response for both slash and plain-chat shortcuts."""
+        interaction_state = build_interaction_state(
+            session=session,
+            registry=self._extension_registry,
+        )
+        if target == "steps":
+            return render_steps_overview(interaction_state)
+        if target == "draft":
+            lines = [
+                "Текущий draft:",
+                json.dumps(interaction_state.draft, ensure_ascii=False, indent=2),
+            ]
+            if interaction_state.current_stage and interaction_state.expected_payload is not None:
+                lines.append("")
+                lines.append(f"Ожидаемая форма для `{interaction_state.current_stage}`:")
+                lines.append(
+                    json.dumps(
+                        interaction_state.expected_payload,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            return "\n".join(lines)
+        if target == "result":
+            return render_result_overview(session)
+        return "Команда /show поддерживает только steps, draft или result."
+
+    def _handle_plain_text_shortcut(
+        self,
+        *,
+        session: AgentSession,
+        user_message: str,
+    ) -> TurnResult | None:
+        """Handles safe informational plain-text requests in the new React shell.
+
+        The new chat is beginner-first, so we accept a tiny layer of non-destructive
+        natural-language shortcuts such as "какие этапы" or "покажи результат".
+        This is intentionally not a full NL parser and never mutates the draft.
+        """
+        text = user_message.strip().lower()
+        if not text:
+            return None
+
+        show_markers = ("покаж", "show", "какие", "спис", "доступ", "что есть")
+        step_markers = ("этап", "этапы", "шаг", "шаги", "stage", "stages", "steps")
+        draft_markers = ("черновик", "draft", "ввод", "input", "данные")
+        result_markers = ("результат", "решение", "solution", "result")
+        help_markers = (
+            "помощ",
+            "help",
+            "что дальше",
+            "как работать",
+            "как пользоваться",
+            "что делать",
+        )
+        explain_markers = ("объяс", "пояс", "explain")
+
+        assistant_message: str | None = None
+        if self._contains_any(text, step_markers) and self._contains_any(text, show_markers):
+            assistant_message = self._render_show_target(session=session, target="steps")
+        elif self._contains_any(text, draft_markers) and self._contains_any(text, show_markers):
+            assistant_message = self._render_show_target(session=session, target="draft")
+        elif self._contains_any(text, result_markers) and self._contains_any(text, show_markers):
+            assistant_message = self._render_show_target(session=session, target="result")
+        elif self._contains_any(text, help_markers):
+            interaction_state = build_interaction_state(
+                session=session,
+                registry=self._extension_registry,
+            )
+            assistant_message = render_help_text(interaction_state)
+        elif self._contains_any(text, explain_markers):
+            assistant_message = render_result_overview(session)
+
+        if assistant_message is None:
+            return None
+
+        result = self._append_assistant_reply(
+            session=session,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
+        self._store.save(result.session)
+        return result
+
     @property
     def store(self) -> InMemorySessionStore:
         """Возвращает используемое хранилище сессий (для тестов и интеграций)."""
@@ -285,6 +380,18 @@ class AgentService:
         """Handles the new slash-command contract without breaking legacy deterministic flow."""
         slash = parse_slash_command(request.message)
         if slash is None:
+            session = self._resolve_session_for_request(request)
+            prepared = self._apply_requested_extension(session=session, request=request)
+            if isinstance(prepared, TurnResult):
+                return prepared
+            session = prepared
+
+            shortcut = self._handle_plain_text_shortcut(
+                session=session,
+                user_message=request.message,
+            )
+            if shortcut is not None:
+                return shortcut
             return self.handle_turn(request)
 
         session = self._resolve_session_for_request(request)
@@ -393,32 +500,10 @@ class AgentService:
         )
 
         if slash.name == "show":
-            target = slash.arg or "steps"
-            if target == "steps":
-                assistant_message = render_steps_overview(interaction_state)
-            elif target == "draft":
-                lines = [
-                    "Текущий draft:",
-                    json.dumps(interaction_state.draft, ensure_ascii=False, indent=2),
-                ]
-                if (
-                    interaction_state.current_stage
-                    and interaction_state.expected_payload is not None
-                ):
-                    lines.append("")
-                    lines.append(f"Ожидаемая форма для `{interaction_state.current_stage}`:")
-                    lines.append(
-                        json.dumps(
-                            interaction_state.expected_payload,
-                            ensure_ascii=False,
-                            indent=2,
-                        )
-                    )
-                assistant_message = "\n".join(lines)
-            elif target == "result":
-                assistant_message = render_result_overview(session)
-            else:
-                assistant_message = "Команда /show поддерживает только steps, draft или result."
+            assistant_message = self._render_show_target(
+                session=session,
+                target=slash.arg or "steps",
+            )
         elif slash.name == "help":
             assistant_message = render_help_text(interaction_state)
         elif slash.name == "explain":

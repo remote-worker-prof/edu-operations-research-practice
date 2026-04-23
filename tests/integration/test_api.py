@@ -301,7 +301,7 @@ def test_htmx_turn_full_cycle(monkeypatch) -> None:
     """
     # Arrange
     monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
-    page = client.get("/")
+    page = client.get("/legacy")
     assert page.status_code == 200
 
     match = re.search(r'name="session_id" value="([^"]+)"', page.text)
@@ -338,7 +338,7 @@ def test_index_model_aliases_match_config() -> None:
     - расхождение между реальным конфигом и отображаемыми вариантами в интерфейсе.
     """
     # Arrange / Act
-    page = client.get("/")
+    page = client.get("/legacy")
     assert page.status_code == 200
 
     # Assert
@@ -359,7 +359,7 @@ def test_index_uses_human_friendly_model_labels() -> None:
     - ухудшение учебного UX из-за утечки внутренних идентификаторов в интерфейс.
     """
     # Arrange / Act
-    page = client.get("/")
+    page = client.get("/legacy")
     assert page.status_code == 200
 
     # Assert
@@ -376,7 +376,7 @@ def test_htmx_missing_fields_show_human_labels(monkeypatch) -> None:
     """
     # Arrange
     monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
-    page = client.get("/")
+    page = client.get("/legacy")
     assert page.status_code == 200
 
     match = re.search(r'name="session_id" value="([^"]+)"', page.text)

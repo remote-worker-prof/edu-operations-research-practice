@@ -22,13 +22,13 @@ import type {
 
 type GuidedPanelProps = {
   interaction: InteractionState | null;
-  onCommand: (command: string) => Promise<void>;
+  onMessage: (message: string) => Promise<void>;
   onCreateThread: (extensionAlias?: string) => Promise<void>;
 };
 
 export function GuidedPanel({
   interaction,
-  onCommand,
+  onMessage,
   onCreateThread,
 }: GuidedPanelProps) {
   const [selectedAlias, setSelectedAlias] = useState<string>("study_planner");
@@ -41,7 +41,7 @@ export function GuidedPanel({
 
   if (!interaction) {
     return (
-      <section className="guided-panel empty-state">
+      <section className="guided-panel empty-state" data-testid="guided-panel-loading">
         <p className="eyebrow">Подготовка</p>
         <h1>Подключаем guided chat…</h1>
         <p>
@@ -57,17 +57,20 @@ export function GuidedPanel({
   );
 
   return (
-    <section className="guided-panel">
-      <header className="hero">
+    <section className="guided-panel" data-testid="guided-panel">
+      <header className="hero" data-testid="chat-hero">
         <div>
-          <p className="eyebrow">Semantics-driven workspace</p>
-          <h1>{activeExtension?.title ?? interaction.active_extension}</h1>
-          <p>{activeExtension?.description}</p>
+          <p className="eyebrow">Основной чат</p>
+          <h1 data-testid="active-extension-title">
+            {activeExtension?.title ?? interaction.active_extension}
+          </h1>
+          <p data-testid="active-extension-description">{activeExtension?.description}</p>
         </div>
         <div className="hero__actions">
           <label className="field">
-            <span>Шаблон нового треда</span>
+            <span>Extension для нового треда</span>
             <select
+              data-testid="new-thread-extension-select"
               onChange={(event) => setSelectedAlias(event.target.value)}
               value={selectedAlias}
             >
@@ -80,6 +83,7 @@ export function GuidedPanel({
           </label>
           <button
             className="primary-button"
+            data-testid="new-thread-button"
             onClick={() => onCreateThread(selectedAlias)}
             type="button"
           >
@@ -87,60 +91,91 @@ export function GuidedPanel({
           </button>
           <button
             className="ghost-button"
-            onClick={() => onCommand(`/new ${interaction.active_extension}`)}
+            data-testid="switch-extension-button"
+            onClick={() => void onMessage(`/use ${selectedAlias}`)}
             type="button"
           >
-            Очистить текущий
+            Сменить extension
+          </button>
+          <button
+            className="ghost-button"
+            data-testid="reset-thread-button"
+            onClick={() => void onMessage("/reset")}
+            type="button"
+          >
+            Сбросить
           </button>
         </div>
       </header>
 
-      <div className="status-strip">
+      <div className="status-strip" data-testid="status-strip">
         <div>
           <span className="status-strip__label">Текущий шаг</span>
-          <strong>{interaction.current_stage ?? "не выбран"}</strong>
+          <strong data-testid="current-stage-value">
+            {interaction.current_stage ?? "не выбран"}
+          </strong>
         </div>
         <div>
           <span className="status-strip__label">Сводка</span>
-          <strong>{interaction.draft_summary}</strong>
+          <strong data-testid="draft-summary-value">{interaction.draft_summary}</strong>
         </div>
       </div>
 
-      <div className="command-grid">
-        {interaction.commands.map((command) => (
-          <button
-            className={`command-pill command-pill--${command.category}`}
-            key={command.name}
-            onClick={() => {
-              if (command.name === "/show") {
-                void onCommand("/show steps");
-                return;
-              }
-              if (command.name === "/new") {
-                void onCommand(`/new ${interaction.active_extension}`);
-                return;
-              }
-              if (command.name === "/use") {
-                void onCommand(`/use ${selectedAlias}`);
-                return;
-              }
-              if (command.name === "/step" && interaction.current_stage) {
-                void onCommand(`/step ${interaction.current_stage}`);
-                return;
-              }
-              if (command.name === "/payload" && interaction.current_stage) {
-                const payload = interaction.expected_payload ?? {};
-                void onCommand(buildStageCommand(interaction.current_stage, payload));
-                return;
-              }
-              void onCommand(command.name);
-            }}
-            type="button"
-          >
-            <strong>{command.name}</strong>
-            <span>{command.summary}</span>
-          </button>
-        ))}
+      <div className="quick-actions" data-testid="quick-actions">
+        <button
+          className="command-pill command-pill--user"
+          data-testid="show-steps-button"
+          onClick={() => void onMessage("/show steps")}
+          type="button"
+        >
+          <strong>Показать этапы</strong>
+          <span>Какие шаги уже готовы и что ещё осталось.</span>
+        </button>
+        <button
+          className="command-pill command-pill--user"
+          data-testid="show-draft-button"
+          onClick={() => void onMessage("/show draft")}
+          type="button"
+        >
+          <strong>Показать черновик</strong>
+          <span>Проверить, какие данные уже сохранены.</span>
+        </button>
+        <button
+          className="command-pill command-pill--user"
+          data-testid="show-result-button"
+          onClick={() => void onMessage("/show result")}
+          type="button"
+        >
+          <strong>Показать результат</strong>
+          <span>Вернуть краткий итог решения в чат.</span>
+        </button>
+        <button
+          className="command-pill command-pill--user"
+          data-testid="solve-button"
+          onClick={() => void onMessage("/solve")}
+          type="button"
+        >
+          <strong>Решить</strong>
+          <span>Запустить расчёт после заполнения входов.</span>
+        </button>
+        <button
+          className="command-pill command-pill--user"
+          data-testid="explain-button"
+          onClick={() => void onMessage("/explain")}
+          type="button"
+        >
+          <strong>Объяснить</strong>
+          <span>Попросить ассистента пояснить полученное решение.</span>
+        </button>
+        <button
+          className="command-pill command-pill--user"
+          data-testid="help-button"
+          onClick={() => void onMessage("/help")}
+          type="button"
+        >
+          <strong>Помощь</strong>
+          <span>Показать быстрые подсказки по этому сценарию.</span>
+        </button>
       </div>
 
       <div className="workspace-grid">
@@ -155,8 +190,9 @@ export function GuidedPanel({
                 className={`stage-tile${stage.current ? " stage-tile--current" : ""}${
                   stage.ready ? " stage-tile--ready" : ""
                 }`}
+                data-testid={`stage-tile-${stage.stage_id}`}
                 key={stage.stage_id}
-                onClick={() => onCommand(`/step ${stage.stage_id}`)}
+                onClick={() => void onMessage(`/step ${stage.stage_id}`)}
                 type="button"
               >
                 <div className="stage-tile__head">
@@ -180,7 +216,7 @@ export function GuidedPanel({
               extension.
             </p>
           </div>
-          <StepEditor interaction={interaction} onCommand={onCommand} />
+          <StepEditor interaction={interaction} onMessage={onMessage} />
         </section>
 
         <section className="card">
@@ -196,11 +232,59 @@ export function GuidedPanel({
       </div>
 
       <div className="details-grid">
-        <details className="card card--details">
-          <summary>Raw draft</summary>
+        <details
+          className="card card--details"
+          data-testid="power-mode-card"
+          open={interaction.current_step == null}
+        >
+          <summary>Режим преподавателя и команды</summary>
+          <PowerConsole
+            currentStage={interaction.current_stage ?? null}
+            examplePayload={interaction.expected_payload ?? null}
+            onMessage={onMessage}
+          />
+          <div className="command-grid command-grid--power">
+            {interaction.commands.map((command) => (
+              <button
+                className={`command-pill command-pill--${command.category}`}
+                key={command.name}
+                onClick={() => {
+                  if (command.name === "/show") {
+                    void onMessage("/show steps");
+                    return;
+                  }
+                  if (command.name === "/new") {
+                    void onMessage(`/new ${interaction.active_extension}`);
+                    return;
+                  }
+                  if (command.name === "/use") {
+                    void onMessage(`/use ${selectedAlias}`);
+                    return;
+                  }
+                  if (command.name === "/step" && interaction.current_stage) {
+                    void onMessage(`/step ${interaction.current_stage}`);
+                    return;
+                  }
+                  if (command.name === "/payload" && interaction.current_stage) {
+                    const payload = interaction.expected_payload ?? {};
+                    void onMessage(buildStageCommand(interaction.current_stage, payload));
+                    return;
+                  }
+                  void onMessage(command.name);
+                }}
+                type="button"
+              >
+                <strong>{command.name}</strong>
+                <span>{command.summary}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+        <details className="card card--details" data-testid="raw-draft-card">
+          <summary>Черновик</summary>
           <pre>{JSON.stringify(interaction.draft, null, 2)}</pre>
         </details>
-        <details className="card card--details">
+        <details className="card card--details" data-testid="typed-semantics-card">
           <summary>Typed semantics</summary>
           <pre>{JSON.stringify(interaction.semantics, null, 2)}</pre>
         </details>
@@ -211,40 +295,57 @@ export function GuidedPanel({
 
 function StepEditor({
   interaction,
-  onCommand,
+  onMessage,
 }: {
   interaction: InteractionState;
-  onCommand: (command: string) => Promise<void>;
+  onMessage: (message: string) => Promise<void>;
 }) {
   const step = interaction.current_step;
 
   if (!step) {
     return (
-      <div className="empty-state compact">
-        <p>Для текущего extension этот шаг редактируется через чат или не выбран.</p>
+      <div className="empty-state compact" data-testid="plain-chat-hint">
+        <p>
+          Для этого сценария основной режим работы сейчас идёт через обычный чат.
+          Ниже в блоке преподавателя можно отправить команду или свободный вопрос.
+        </p>
       </div>
     );
   }
 
   if (step.shape?.kind === "table") {
-    return <TableEditor interaction={interaction} shape={step.shape} step={step} onCommand={onCommand} />;
+    return (
+      <TableEditor
+        interaction={interaction}
+        onMessage={onMessage}
+        shape={step.shape}
+        step={step}
+      />
+    );
   }
 
   if (step.shape?.kind === "matrix") {
-    return <MatrixEditor interaction={interaction} shape={step.shape} step={step} onCommand={onCommand} />;
+    return (
+      <MatrixEditor
+        interaction={interaction}
+        onMessage={onMessage}
+        shape={step.shape}
+        step={step}
+      />
+    );
   }
 
-  return <ScalarVectorEditor interaction={interaction} step={step} onCommand={onCommand} />;
+  return <ScalarVectorEditor interaction={interaction} onMessage={onMessage} step={step} />;
 }
 
 function ScalarVectorEditor({
   interaction,
   step,
-  onCommand,
+  onMessage,
 }: {
   interaction: InteractionState;
   step: InputStepSemantics;
-  onCommand: (command: string) => Promise<void>;
+  onMessage: (message: string) => Promise<void>;
 }) {
   const [payload, setPayload] = useState<Record<string, unknown>>({});
 
@@ -255,15 +356,17 @@ function ScalarVectorEditor({
   return (
     <form
       className="editor-form"
+      data-testid={`editor-${step.step_id}`}
       onSubmit={(event) => {
         event.preventDefault();
-        void onCommand(buildStageCommand(step.step_id, payload));
+        void onMessage(buildStageCommand(step.step_id, payload));
       }}
     >
       {step.scalars.map((field) => (
         <label className="field" key={field.field_path}>
           <span>{field.label}</span>
           <input
+            data-testid={`scalar-${step.step_id}-${field.field_path}`}
             onChange={(event) =>
               setPayload((current) => ({
                 ...current,
@@ -294,6 +397,7 @@ function ScalarVectorEditor({
                 <label className="field field--inline" key={`${field.field_path}:${label}`}>
                   <span>{label}</span>
                   <input
+                    data-testid={`vector-${step.step_id}-${field.field_path}-${index}`}
                     onChange={(event) =>
                       setPayload((current) => {
                         const next = [...(Array.isArray(current[field.field_path]) ? (current[field.field_path] as unknown[]) : values)];
@@ -314,7 +418,11 @@ function ScalarVectorEditor({
         );
       })}
 
-      <button className="primary-button" type="submit">
+      <button
+        className="primary-button"
+        data-testid={`submit-step-${step.step_id}`}
+        type="submit"
+      >
         Отправить шаг
       </button>
     </form>
@@ -325,12 +433,12 @@ function TableEditor({
   interaction,
   step,
   shape,
-  onCommand,
+  onMessage,
 }: {
   interaction: InteractionState;
   step: InputStepSemantics;
   shape: TableShapeSemantics;
-  onCommand: (command: string) => Promise<void>;
+  onMessage: (message: string) => Promise<void>;
 }) {
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
 
@@ -341,9 +449,10 @@ function TableEditor({
   return (
     <form
       className="editor-form"
+      data-testid={`table-editor-${step.step_id}`}
       onSubmit={(event) => {
         event.preventDefault();
-        void onCommand(buildStageCommand(step.step_id, tablePayload(rows, shape)));
+        void onMessage(buildStageCommand(step.step_id, tablePayload(rows, shape)));
       }}
     >
       <div className="table-editor">
@@ -356,6 +465,7 @@ function TableEditor({
         {rows.map((row, rowIndex) => (
           <div className="table-editor__grid" key={`row-${rowIndex}`}>
             <input
+              data-testid={`table-${step.step_id}-${rowIndex}-${shape.key.field_path}`}
               onChange={(event) =>
                 setRows((current) =>
                   current.map((item, index) =>
@@ -370,6 +480,7 @@ function TableEditor({
             />
             {shape.columns.map((column) => (
               <input
+                data-testid={`table-${step.step_id}-${rowIndex}-${column.field_path}`}
                 key={`${rowIndex}:${column.field_path}`}
                 onChange={(event) =>
                   setRows((current) =>
@@ -396,6 +507,7 @@ function TableEditor({
       <div className="toolbar">
         <button
           className="ghost-button"
+          data-testid={`add-row-${step.step_id}`}
           onClick={() =>
             setRows((current) => [
               ...current,
@@ -409,7 +521,11 @@ function TableEditor({
         >
           Добавить строку
         </button>
-        <button className="primary-button" type="submit">
+        <button
+          className="primary-button"
+          data-testid={`submit-step-${step.step_id}`}
+          type="submit"
+        >
           Отправить таблицу
         </button>
       </div>
@@ -421,12 +537,12 @@ function MatrixEditor({
   interaction,
   step,
   shape,
-  onCommand,
+  onMessage,
 }: {
   interaction: InteractionState;
   step: InputStepSemantics;
   shape: MatrixShapeSemantics;
-  onCommand: (command: string) => Promise<void>;
+  onMessage: (message: string) => Promise<void>;
 }) {
   const [payload, setPayload] = useState<Record<string, number[][]>>({});
 
@@ -457,9 +573,10 @@ function MatrixEditor({
   return (
     <form
       className="editor-form"
+      data-testid={`matrix-editor-${step.step_id}`}
       onSubmit={(event) => {
         event.preventDefault();
-        void onCommand(buildStageCommand(step.step_id, payload));
+        void onMessage(buildStageCommand(step.step_id, payload));
       }}
     >
       {shape.fields.map((field) => (
@@ -479,6 +596,7 @@ function MatrixEditor({
               <FragmentRow key={rowLabel} label={rowLabel}>
                 {colLabels.map((colLabel, colIndex) => (
                   <input
+                    data-testid={`matrix-${step.step_id}-${field.field_path}-${rowIndex}-${colIndex}`}
                     key={`${rowLabel}:${colLabel}`}
                     onChange={(event) =>
                       setPayload((current) => {
@@ -499,7 +617,11 @@ function MatrixEditor({
           </div>
         </div>
       ))}
-      <button className="primary-button" type="submit">
+      <button
+        className="primary-button"
+        data-testid={`submit-step-${step.step_id}`}
+        type="submit"
+      >
         Отправить матрицу
       </button>
     </form>
@@ -524,17 +646,17 @@ function FragmentRow({
 function ResultView({ sections }: { sections: ResultSection[] }) {
   if (sections.length === 0) {
     return (
-      <div className="empty-state compact">
-        <p>Результат появится здесь после команды /solve.</p>
+      <div className="empty-state compact" data-testid="empty-result-state">
+        <p>Результат появится здесь после кнопки «Решить» или команды /solve.</p>
       </div>
     );
   }
 
   return (
-    <div className="results-stack">
+    <div className="results-stack" data-testid="results-stack">
       {sections.map((section) => (
         <article className="result-section" key={section.section_id}>
-          <h3>{section.title}</h3>
+          <h3 data-testid="result-section-title">{section.title}</h3>
           {section.blocks.map((block, index) => (
             <ResultBlockView block={block} key={`${section.section_id}:${index}`} />
           ))}
@@ -546,14 +668,18 @@ function ResultView({ sections }: { sections: ResultSection[] }) {
 
 function ResultBlockView({ block }: { block: DisplayBlock }) {
   if (block.type === "summary") {
-    return <p className="summary-block">{block.text}</p>;
+    return (
+      <p className="summary-block" data-testid="result-summary-block">
+        {block.text}
+      </p>
+    );
   }
 
   if (block.type === "kv") {
     return (
       <div className="summary-grid">
         {block.items.map((item) => (
-          <div className="summary-card" key={item.key}>
+          <div className="summary-card" data-testid="result-kv-card" key={item.key}>
             <span>{item.key}</span>
             <strong>{String(item.value)}</strong>
           </div>
@@ -571,7 +697,7 @@ function ResultBlockView({ block }: { block: DisplayBlock }) {
           ))}
         </div>
         {block.rows.map((row, rowIndex) => (
-          <div className="result-table__row" key={rowIndex}>
+          <div className="result-table__row" data-testid="result-table-row" key={rowIndex}>
             {row.map((cell, cellIndex) => (
               <span key={`${rowIndex}:${cellIndex}`}>{String(cell)}</span>
             ))}
@@ -592,4 +718,56 @@ function ResultBlockView({ block }: { block: DisplayBlock }) {
   }
 
   return <pre>{JSON.stringify(block.value, null, 2)}</pre>;
+}
+
+function PowerConsole({
+  currentStage,
+  examplePayload,
+  onMessage,
+}: {
+  currentStage: string | null;
+  examplePayload: Record<string, unknown> | null;
+  onMessage: (message: string) => Promise<void>;
+}) {
+  const [message, setMessage] = useState("");
+
+  const placeholder = currentStage
+    ? `Например: ${buildStageCommand(currentStage, examplePayload ?? {})}`
+    : "Например: /help или свободный вопрос по задаче";
+
+  return (
+    <form
+      className="power-console"
+      data-testid="power-console"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmed = message.trim();
+        if (!trimmed) {
+          return;
+        }
+        void onMessage(trimmed);
+        setMessage("");
+      }}
+    >
+      <label className="field">
+        <span>Команда или сообщение</span>
+        <textarea
+          className="power-console__input"
+          data-testid="power-console-input"
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder={placeholder}
+          rows={3}
+          value={message}
+        />
+      </label>
+      <div className="toolbar">
+        <button className="ghost-button" onClick={() => setMessage("/help")} type="button">
+          Вставить /help
+        </button>
+        <button className="primary-button" data-testid="power-console-send" type="submit">
+          Отправить в чат
+        </button>
+      </div>
+    </form>
+  );
 }

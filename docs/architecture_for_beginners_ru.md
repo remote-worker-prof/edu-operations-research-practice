@@ -9,8 +9,9 @@
 Если запомнить только самое главное, то вот оно:
 
 - Это учебное веб-приложение по исследованию операций, а не "магический чат-бот".
-- Пользователь по шагам собирает входы для 4 OR-этапов, а затем явно отправляет команду `run`.
-- `apps/webapp` отвечает за HTTP и HTML/JSON, `packages/agent_core` ведёт диалог и состояние сессии, `packages/or_core` делает детерминированный расчёт.
+- Основной интерфейс теперь открывается на `/app/` и работает как новый React chat shell.
+- Пользователь по шагам собирает входы для OR-этапов или extension bundle-а, а затем явно запускает расчёт.
+- `apps/webapp` отвечает за HTTP/API и legacy fallback, `apps/chat_web` — за новый чат, `packages/agent_core` ведёт диалог и состояние сессии, `packages/or_core` делает детерминированный расчёт.
 - LLM может помочь понять свободный текст и объяснить результат, но не имеет права молча записывать итоговые входы OR-модели.
 - Источником истины для расчёта является валидированный `ScenarioDraft`, который превращается в `ORPipelineInput`.
 - Любое изменение входов сбрасывает старый `or_result`, чтобы студент не смотрел на устаревший расчёт.
@@ -42,7 +43,8 @@ OR-конвейер из четырёх этапов: `production -> shipment ->
 
 Проект разбит на три слоя, чтобы не смешивать всё в один большой файл и одну большую ответственность.
 
-- `apps/webapp` принимает HTTP-запросы и отдаёт HTML или JSON.
+- `apps/webapp` принимает HTTP-запросы, отдаёт API и держит legacy fallback на `/legacy`.
+- `apps/chat_web` даёт основной guided chat shell на `/app/`.
 - `packages/agent_core` решает, что делать с очередной репликой пользователя: задать вопрос, применить подтверждённые patch-и, запустить расчёт или объяснить результат.
 - `packages/or_core` содержит доменные модели, валидацию и сами OR-решатели.
 
@@ -65,12 +67,18 @@ OR-конвейер из четырёх этапов: `production -> shipment ->
           |
           v
 [apps/webapp]
-FastAPI + HTMX + HTML/JSON endpoints
+FastAPI + thread/session API + legacy fallback
+          |
+          +------------------------------+
+          |                              |
+          v                              v
+   [apps/chat_web]                  [legacy /legacy]
+Next.js + CopilotKit + AG-UI        HTMX/Jinja fallback
           |
           v
 [packages/agent_core]
 AgentService
-DialogGraph
+DialogGraph + typed semantics
 Session state
 NL/command parsing
 Explanation

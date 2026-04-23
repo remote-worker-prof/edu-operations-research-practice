@@ -8,6 +8,7 @@ __pycache__/
 .DS_Store
 node_modules/
 apps/chat_web/.next/
+apps/chat_web/out/
 .beads/daemon-error
 # Dolt database files (added by bd init)
 .dolt/

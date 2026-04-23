@@ -91,6 +91,7 @@ button {
 .results-stack,
 .stage-list,
 .command-grid,
+.quick-actions,
 .summary-grid,
 .details-grid {
   display: grid;
@@ -241,6 +242,16 @@ button {
   margin-bottom: 18px;
 }
 
+.quick-actions {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-bottom: 18px;
+}
+
+.command-grid--power {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
 .command-pill {
   display: grid;
   gap: 4px;
@@ -297,7 +308,8 @@ button {
 .vector-editor,
 .matrix-editor,
 .table-editor,
-.result-table {
+.result-table,
+.power-console {
   display: grid;
   gap: 12px;
 }
@@ -309,6 +321,7 @@ button {
 
 .field select,
 .field input,
+.field textarea,
 .table-editor input,
 .matrix-editor input {
   width: 100%;
@@ -316,6 +329,11 @@ button {
   border: 1px solid rgba(16, 38, 43, 0.15);
   background: rgba(255, 255, 255, 0.92);
   padding: 10px 12px;
+}
+
+.power-console__input {
+  min-height: 110px;
+  resize: vertical;
 }
 
 .field--inline {
@@ -372,7 +390,7 @@ button {
 }
 
 .details-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 18px;
 }
 
@@ -388,13 +406,8 @@ button {
   font-size: 0.85rem;
 }
 
-.runtime-banner,
 .error-banner {
   margin-bottom: 16px;
-}
-
-.runtime-banner code {
-  overflow-wrap: anywhere;
 }
 
 .error-banner {
@@ -402,6 +415,10 @@ button {
   border-color: rgba(201, 109, 37, 0.28);
   background: rgba(255, 241, 233, 0.92);
   color: #8d3d18;
+}
+
+.poweredBy {
+  pointer-events: none;
 }
 
 .empty-state {

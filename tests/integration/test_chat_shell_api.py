@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from webapp.main import create_app
@@ -15,6 +16,62 @@ def _decode_sse_events(body: str) -> list[dict[str, object]]:
         if line.startswith("data: "):
             events.append(json.loads(line.removeprefix("data: ")))
     return events
+
+
+def _fake_chat_web_export(tmp_path: Path) -> Path:
+    """Creates a minimal static export directory for `/app/*` integration checks."""
+    export_dir = tmp_path / "chat_web_export"
+    export_dir.mkdir()
+    (export_dir / "index.html").write_text(
+        (
+            "<!doctype html><html><body>"
+            "<div data-testid='react-chat-shell'>chat shell</div>"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return export_dir
+
+
+def test_root_redirects_to_app_and_legacy_ui_remains_available(tmp_path: Path) -> None:
+    """Product root should point to the React shell, while `/legacy` still serves HTMX."""
+    client = TestClient(create_app(chat_web_export_dir=_fake_chat_web_export(tmp_path)))
+
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code == 307
+    assert root.headers["location"] == "/app/"
+
+    app_shell = client.get("/app/")
+    assert app_shell.status_code == 200
+    assert "react-chat-shell" in app_shell.text
+
+    legacy = client.get("/legacy")
+    assert legacy.status_code == 200
+    assert 'id="workspace"' in legacy.text
+
+
+def test_app_route_shows_clear_fallback_when_static_export_is_missing(tmp_path: Path) -> None:
+    """Local backend should explain how to build the React shell if `/app/` assets are absent."""
+    client = TestClient(create_app(chat_web_export_dir=tmp_path / "missing-export"))
+
+    response = client.get("/app/")
+    assert response.status_code == 503
+    assert "make chat-web-build" in response.text
+    assert "/legacy" in response.text
+
+
+def test_copilotkit_runtime_info_matches_js_runtime_shape() -> None:
+    """React CopilotKit runtime discovery should receive a dict-based agent catalog."""
+    client = TestClient(create_app())
+
+    response = client.get("/api/copilotkit/info")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["mode"] == "sse"
+    assert payload["audioFileTranscriptionEnabled"] is False
+    assert payload["agents"]["edu_or_chat"]["description"]
+    assert payload["agents"]["edu_or_chat"]["capabilities"] == {}
 
 
 def test_thread_endpoints_create_turn_and_expose_interaction_state() -> None:
@@ -157,5 +214,9 @@ def test_default_or_uses_same_thread_transport_in_plain_chat_mode() -> None:
     assert turn_response.status_code == 200
     payload = turn_response.json()
     assert payload["interaction"]["active_extension"] == "default_or"
-    assert payload["turn"]["assistant_message"]
+    assistant_message = payload["turn"]["assistant_message"].lower()
+    assert "production" in assistant_message
+    assert "shipment" in assistant_message
+    assert "assignment" in assistant_message
+    assert "routing" in assistant_message
     assert payload["turn"]["session"]["messages"][-1]["role"] == "assistant"

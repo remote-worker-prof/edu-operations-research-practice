@@ -34,12 +34,14 @@ from copilotkit.integrations.fastapi import add_fastapi_endpoint
 from extension_api import ExtensionRegistry
 from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 APP_DIR = Path(__file__).resolve().parent
+CHAT_WEB_DIR = APP_DIR.parents[2] / "chat_web"
+CHAT_WEB_EXPORT_DIR = CHAT_WEB_DIR / "out"
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 router = APIRouter()
 
@@ -95,6 +97,57 @@ def _thread_summary(session, request: Request) -> dict[str, object]:
 def _get_service(request: Request) -> AgentService:
     """Возвращает `AgentService`, прикреплённый к текущему приложению."""
     return request.app.state.service
+
+
+def _resolve_chat_web_static_dir(explicit: Path | None = None) -> Path | None:
+    """Returns a resolved static-export directory for the React chat shell.
+
+    The helper tolerates both possible export layouts:
+    - `<out>/index.html`
+    - `<out>/app/index.html`
+    """
+    candidate = explicit or CHAT_WEB_EXPORT_DIR
+    if (candidate / "index.html").exists():
+        return candidate
+    app_nested = candidate / "app"
+    if (app_nested / "index.html").exists():
+        return app_nested
+    return None
+
+
+def _copilotkit_runtime_info_payload(request: Request) -> dict[str, object]:
+    """Builds the runtime-info shape expected by the React CopilotKit client.
+
+    The Python `copilotkit` SDK exposes `/api/copilotkit` info in its own legacy
+    list-based format. The current React client expects a runtime-info document
+    with a dictionary of agents keyed by agent id, so we adapt the backend-owned
+    agent registry into that shape here without changing execution routes.
+    """
+    sdk = request.app.state.copilotkit_sdk
+    info = sdk.info(
+        context={
+            "properties": {},
+            "frontend_url": None,
+            "headers": request.headers,
+        }
+    )
+    agent_map = {
+        item["name"]: {
+            "description": item.get("description", ""),
+            "capabilities": item.get("capabilities") or {},
+        }
+        for item in info.get("agents", [])
+        if item.get("name")
+    }
+    return {
+        "version": info.get("sdkVersion", "python-sdk"),
+        "mode": "sse",
+        "agents": agent_map,
+        "audioFileTranscriptionEnabled": False,
+        "a2uiEnabled": False,
+        "openGenerativeUIEnabled": False,
+        "licenseStatus": None,
+    }
 
 
 def _manifest_context(
@@ -186,17 +239,45 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/", response_class=HTMLResponse)
-def index(request: Request) -> HTMLResponse:
-    """Рендерит стартовую страницу с новой пользовательской сессией.
+@router.get("/api/copilotkit/info", include_in_schema=False)
+@router.post("/api/copilotkit/info", include_in_schema=False)
+def copilotkit_runtime_info(request: Request) -> JSONResponse:
+    """Returns JS-runtime-compatible discovery info for the new React chat shell."""
+    return JSONResponse(content=_copilotkit_runtime_info_payload(request))
+
+
+def _legacy_index_response(request: Request) -> HTMLResponse:
+    """Builds the legacy HTMX/Jinja index response with a fresh session."""
+    service = _get_service(request)
+    session = service.create_session()
+    context = _render_context(request=request, session=session)
+    return templates.TemplateResponse(request, "index.html", context)
+
+
+@router.get("/", include_in_schema=False)
+def root_redirect() -> RedirectResponse:
+    """Redirects the product entry path to the new React chat shell."""
+    return RedirectResponse(url="/app/", status_code=307)
+
+
+@router.get("/app", include_in_schema=False)
+def app_redirect() -> RedirectResponse:
+    """Normalizes the React chat shell path to a trailing-slash URL."""
+    return RedirectResponse(url="/app/", status_code=307)
+
+
+@router.get("/legacy", response_class=HTMLResponse)
+def legacy_index(request: Request) -> HTMLResponse:
+    """Рендерит legacy HTMX/Jinja интерфейс с новой пользовательской сессией.
 
     Что делает:
     - создаёт сессию через `AgentService`;
     - подготавливает контекст интерфейса;
-    - возвращает HTML главной страницы.
+    - возвращает HTML legacy-страницы.
 
     Зачем:
-    - стартовый экран всегда должен иметь валидный `session_id` для следующих HTMX-запросов.
+    - старый HTMX/Jinja shell остаётся внутренним fallback после product cutover
+      на новый React chat.
 
     Входы:
     - `request`: HTTP-запрос браузера.
@@ -208,12 +289,15 @@ def index(request: Request) -> HTMLResponse:
     - возможны только при системных проблемах шаблонизатора/инфраструктуры.
 
     Пример:
-    - пользователь открывает `/` и видит чат + панель параметров.
+    - пользователь открывает `/legacy` и видит прежний HTMX workspace.
     """
-    service = _get_service(request)
-    session = service.create_session()
-    context = _render_context(request=request, session=session)
-    return templates.TemplateResponse(request, "index.html", context)
+    return _legacy_index_response(request)
+
+
+@router.get("/legacy/", include_in_schema=False)
+def legacy_redirect() -> RedirectResponse:
+    """Normalizes the legacy path to one canonical URL."""
+    return RedirectResponse(url="/legacy", status_code=307)
 
 
 @router.post("/chat/turn", response_class=HTMLResponse)
@@ -427,13 +511,14 @@ def create_app(
     *,
     service: AgentService | None = None,
     extension_registry: ExtensionRegistry | None = None,
+    chat_web_export_dir: Path | None = None,
 ) -> FastAPI:
     """Создаёт и настраивает `FastAPI`-приложение для runtime и тестов.
 
     Что делает:
     - создаёт новый экземпляр `FastAPI`;
     - прикрепляет `AgentService` в `app.state`;
-    - монтирует локальные static assets;
+    - монтирует локальные static assets и, если доступен build, React chat shell;
     - подключает router c HTML и JSON endpoints.
 
     Зачем:
@@ -479,9 +564,68 @@ def create_app(
     app.state.extension_startup_warnings = app.state.service.extension_startup_warnings
     app.state.chat_agent = SemanticsChatAgent(service=resolved_service)
     app.state.copilotkit_sdk = CopilotKitRemoteEndpoint(agents=[app.state.chat_agent])
-    app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+    app.state.chat_web_static_dir = _resolve_chat_web_static_dir(chat_web_export_dir)
     app.include_router(router)
     add_fastapi_endpoint(app, app.state.copilotkit_sdk, "/api/copilotkit")
+    app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+    if app.state.chat_web_static_dir is not None:
+        app.mount(
+            "/app",
+            StaticFiles(directory=str(app.state.chat_web_static_dir), html=True),
+            name="chat_web",
+        )
+    else:
+        @app.get("/app/{path:path}", include_in_schema=False, response_class=HTMLResponse)
+        def chat_web_build_missing(path: str) -> HTMLResponse:
+            """Shows a clear local-dev fallback when the static export is absent."""
+            del path
+            return HTMLResponse(
+                """
+                <!doctype html>
+                <html lang="ru">
+                  <head>
+                    <meta charset="utf-8" />
+                    <title>React chat ещё не собран</title>
+                    <style>
+                      body {
+                        margin: 0;
+                        min-height: 100vh;
+                        display: grid;
+                        place-items: center;
+                        font-family: system-ui, sans-serif;
+                        background: #f7f2e9;
+                        color: #10262b;
+                      }
+                      main {
+                        max-width: 56rem;
+                        padding: 2rem;
+                        border-radius: 24px;
+                        background: rgba(255, 255, 255, 0.92);
+                        box-shadow: 0 18px 60px rgba(28, 39, 47, 0.12);
+                      }
+                      code {
+                        font-family: ui-monospace, monospace;
+                      }
+                    </style>
+                  </head>
+                  <body>
+                    <main>
+                      <p>React chat shell ещё не собран для этого checkout.</p>
+                      <h1>Соберите новый интерфейс перед открытием <code>/app/</code></h1>
+                      <p>
+                        Выполните <code>make chat-web-build</code>, если хотите раздавать
+                        готовый статический UI через FastAPI.
+                      </p>
+                      <p>
+                        Для старого интерфейса временно доступен путь
+                        <a href="/legacy"><code>/legacy</code></a>.
+                      </p>
+                    </main>
+                  </body>
+                </html>
+                """.strip(),
+                status_code=503,
+            )
     return app
 
 

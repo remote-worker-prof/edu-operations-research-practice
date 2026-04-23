@@ -3,10 +3,15 @@
 ## 1. Слои и ответственность
 
 - `apps/webapp`:
-  - HTTP-слой (`FastAPI` + `HTMX`), рендеринг страницы и partial-ответов.
+  - HTTP-слой (`FastAPI`), маршрутизация, thread/session API и legacy HTML fallback.
+  - Обслуживает новый React chat shell как статические assets на `/app/`.
+  - Держит старый HTMX/Jinja интерфейс только как `/legacy`.
   - Не содержит бизнес-логики OR, только вызывает `AgentService`.
+- `apps/chat_web`:
+  - Новый primary UI на `Next.js + CopilotKit + AG-UI`.
+  - Guided UX, slash-команды и semantics-driven редакторы поверх typed extension semantics.
 - `packages/agent_core`:
-  - Диалоговый граф (`DialogGraph`), интерактивный сбор входов, объяснение результата.
+  - Диалоговый граф (`DialogGraph`), deterministic extension-flow, typed interaction state.
   - Управление сессиями и интеграция с `LiteLLM`.
 - `packages/or_core`:
   - Детерминированный OR-пайплайн из 4 солверов.
@@ -17,14 +22,17 @@
 
 ## 2. Контракты данных
 
-### Вход веб-хода диалога
+### Primary chat transport
 
-- `POST /api/chat/turn`
-- JSON:
-  - `session_id: str | null`
-  - `model_alias: str`
-  - `message: str`
-- Модель: `agent_core.models.ChatTurnRequest`.
+- `GET /api/chat/threads`
+- `POST /api/chat/threads`
+- `GET /api/chat/threads/{thread_id}`
+- `POST /api/chat/threads/{thread_id}/turn`
+- `GET /api/chat/threads/{thread_id}/interaction`
+- `POST /api/copilotkit`
+
+Старые `POST /chat/turn` и `POST /api/chat/turn` остаются в legacy/internal режиме
+ради совместимости и fallback shell.
 
 ### Состояние сессии агента
 
@@ -68,7 +76,7 @@
 6. Узел `explain`:
   - пытается получить объяснение через LLM;
   - при недоступности провайдера использует детерминированный fallback.
-7. `webapp` возвращает обновлённый workspace (HTMX) или JSON-ответ API.
+7. `webapp` возвращает AG-UI/thread state для нового React shell или legacy HTML/JSON fallback.
 
 ## 4. Dataflow между OR-этапами
 
@@ -127,6 +135,15 @@
   - объяснение формируется fallback-логикой.
 
 ## 6. Учебный UX (веб-экран)
+
+### Основной UX: React chat на `/app/`
+
+- thread list и guided panel строятся из `ExtensionInteractionState`;
+- declarative bundles получают semantics-driven scalar/table/matrix editors;
+- `default_or` остаётся plain-chat режимом внутри того же shell;
+- slash-команды вида `/show`, `/solve`, `/help` считаются каноническим power-user слоем.
+
+### Legacy UX: HTMX shell на `/legacy`
 
 - Левая панель:
   - прогресс заполнения 4 stage;

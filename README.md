@@ -30,7 +30,7 @@ slice платформы расширений:
 - `LangGraph` (детерминированные графы)
 - `LiteLLM` (OpenAI, GigaChat, локальный/сторонний LLM-сервер с OpenAI-compatible API)
 - `SciPy`, `NetworkX`, `OR-Tools` (реальные OR-солверы)
-- `FastAPI` + `Jinja2` + `HTMX` (легковесный веб-интерфейс)
+- `FastAPI` + `Jinja2` + `HTMX` (legacy/internal fallback shell)
 - `Next.js` + `CopilotKit` + `AG-UI` (новый primary chat shell поверх typed semantics)
 
 ## Структура монорепо
@@ -52,6 +52,12 @@ uv run --package webapp uvicorn webapp.main:app --reload
 ```
 
 Открыть в браузере: `http://127.0.0.1:8000`
+
+После hard cutover пользователь по умолчанию попадает в новый React chat:
+
+- `GET /` -> redirect на `/app/`
+- `GET /app/` -> основной guided chat shell
+- `GET /legacy` -> старый HTMX/Jinja fallback
 
 Новый primary chat shell можно запустить отдельно:
 
@@ -339,7 +345,18 @@ MP4-файлы recorded demo сохраняются в `.pytest_artifacts/e2e/vi
 - natural-language: свободная реплика -> candidate patches -> подтверждение `да/нет`;
 - command fallback: явные команды для точного контроля.
 
-Основные команды:
+Основные команды в новом shell:
+
+```bash
+/new [extension]
+/use <extension>
+/show [steps|draft|result]
+/solve
+/help
+```
+
+Legacy/power-user команды backend по-прежнему совместимы, но уже не считаются
+основным UX:
 
 ```bash
 start
@@ -364,9 +381,13 @@ exact сообщениями в чат и ожидаемыми checkpoints, см
 
 ## API
 
-- `GET /` — HTML интерфейс
-- `POST /chat/turn` — HTMX endpoint
-- `POST /api/chat/turn` — JSON endpoint
+- `GET /` — redirect на основной React chat `/app/`
+- `GET /app/` — основной React chat shell
+- `GET /legacy` — legacy HTMX/Jinja shell
+- `GET/POST /api/chat/threads*` — backend-owned thread API нового чата
+- `POST /api/copilotkit` — AG-UI/CopilotKit transport нового чата
+- `POST /chat/turn` — legacy HTMX endpoint
+- `POST /api/chat/turn` — legacy JSON endpoint
 - `GET /api/session/{session_id}` — состояние сессии
 - `GET /healthz` — health check
 

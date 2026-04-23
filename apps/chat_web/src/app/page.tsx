@@ -15,6 +15,7 @@ export default function Page() {
       agent="edu_or_chat"
       runtimeUrl={backendRuntimeUrl()}
       threadId={threadId}
+      useSingleEndpoint={false}
     >
       <ChatShell onThreadIdChange={setThreadId} threadId={threadId} />
     </CopilotKit>

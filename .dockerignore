@@ -1,0 +1,11 @@
+.git
+.gitignore
+.pytest_cache
+.pytest_artifacts
+.ruff_cache
+__pycache__
+*.pyc
+apps/chat_web/node_modules
+apps/chat_web/.next
+apps/chat_web/out
+uv.lock

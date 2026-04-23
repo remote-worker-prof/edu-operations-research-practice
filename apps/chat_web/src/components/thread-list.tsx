@@ -18,13 +18,18 @@ export function ThreadList({
   onCreate,
 }: ThreadListProps) {
   return (
-    <aside className="thread-list">
+    <aside className="thread-list" data-testid="thread-list">
       <div className="thread-list__header">
         <div>
           <p className="eyebrow">Треды</p>
           <h2>Сценарии</h2>
         </div>
-        <button className="primary-button" onClick={onCreate} type="button">
+        <button
+          className="primary-button"
+          data-testid="thread-list-create-button"
+          onClick={onCreate}
+          type="button"
+        >
           Новый
         </button>
       </div>
@@ -34,6 +39,7 @@ export function ThreadList({
           return (
             <article
               className={`thread-card${active ? " thread-card--active" : ""}`}
+              data-testid={`thread-card-${thread.thread_id}`}
               key={thread.thread_id}
             >
               <div className="thread-card__meta">
@@ -42,6 +48,7 @@ export function ThreadList({
               </div>
               <button
                 className="thread-card__open"
+                data-testid={`thread-open-${thread.thread_id}`}
                 onClick={() => onSelect(thread.thread_id)}
                 type="button"
               >
@@ -53,6 +60,7 @@ export function ThreadList({
               </span>
               <button
                 className="thread-card__delete"
+                data-testid={`thread-delete-${thread.thread_id}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete(thread.thread_id);

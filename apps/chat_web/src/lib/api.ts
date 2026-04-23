@@ -1,10 +1,9 @@
 import type { InteractionState, ThreadEnvelope, ThreadSummary } from "@/lib/types";
 
-const backendUrl =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ?? "";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${backendUrl}${path}`, {
+  const response = await fetch(backendUrl ? `${backendUrl}${path}` : path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -19,7 +18,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function backendRuntimeUrl(): string {
-  return `${backendUrl}/api/copilotkit`;
+  return backendUrl ? `${backendUrl}/api/copilotkit` : "/api/copilotkit";
 }
 
 export async function listThreads(): Promise<ThreadSummary[]> {

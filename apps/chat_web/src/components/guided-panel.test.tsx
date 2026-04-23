@@ -228,7 +228,7 @@ describe("GuidedPanel", () => {
     render(
       <GuidedPanel
         interaction={transportationInteraction()}
-        onCommand={vi.fn().mockResolvedValue(undefined)}
+        onMessage={vi.fn().mockResolvedValue(undefined)}
         onCreateThread={vi.fn().mockResolvedValue(undefined)}
       />,
     );
@@ -242,12 +242,12 @@ describe("GuidedPanel", () => {
   });
 
   it("submits matrix payloads as slash commands", async () => {
-    const onCommand = vi.fn().mockResolvedValue(undefined);
+    const onMessage = vi.fn().mockResolvedValue(undefined);
 
     render(
       <GuidedPanel
         interaction={transportationInteraction()}
-        onCommand={onCommand}
+        onMessage={onMessage}
         onCreateThread={vi.fn().mockResolvedValue(undefined)}
       />,
     );
@@ -261,27 +261,49 @@ describe("GuidedPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отправить матрицу" }));
 
     await waitFor(() => {
-      expect(onCommand).toHaveBeenCalledWith(
+      expect(onMessage).toHaveBeenCalledWith(
         '/payload costs {"cost":[[11,12],[13,14]]}',
       );
     });
   });
 
-  it("maps convenience command pills to their guided counterparts", async () => {
-    const onCommand = vi.fn().mockResolvedValue(undefined);
+  it("maps quick actions to canonical slash commands", async () => {
+    const onMessage = vi.fn().mockResolvedValue(undefined);
 
     render(
       <GuidedPanel
         interaction={transportationInteraction()}
-        onCommand={onCommand}
+        onMessage={onMessage}
         onCreateThread={vi.fn().mockResolvedValue(undefined)}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /\/show/ }));
+    fireEvent.click(screen.getByTestId("show-steps-button"));
 
     await waitFor(() => {
-      expect(onCommand).toHaveBeenCalledWith("/show steps");
+      expect(onMessage).toHaveBeenCalledWith("/show steps");
+    });
+  });
+
+  it("sends freeform power-mode messages through the same backend hook", async () => {
+    const onMessage = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <GuidedPanel
+        interaction={transportationInteraction()}
+        onMessage={onMessage}
+        onCreateThread={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Режим преподавателя и команды"));
+    fireEvent.change(screen.getByTestId("power-console-input"), {
+      target: { value: "Покажи состояние текущего треда." },
+    });
+    fireEvent.click(screen.getByTestId("power-console-send"));
+
+    await waitFor(() => {
+      expect(onMessage).toHaveBeenCalledWith("Покажи состояние текущего треда.");
     });
   });
 });

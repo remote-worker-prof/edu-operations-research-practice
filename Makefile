@@ -256,16 +256,16 @@ test-e2e-openai-short-video-pack: ## Record the compact OpenAI Selenium short vi
 	-m "openai_short_video_demo" "$${video_case_args[@]}" -vv -s $(PYTEST_ARGS)'
 
 chat-web-install: ## Install Next.js chat shell dependencies
-	cd $(CHAT_WEB_DIR) && npm install
+	cd $(CHAT_WEB_DIR) && npm ci
 
 chat-web-dev: ## Run the Next.js chat shell in dev mode
-	cd $(CHAT_WEB_DIR) && npm run dev
+	@bash -lc 'cd $(CHAT_WEB_DIR) && NEXT_PUBLIC_BACKEND_URL="$${NEXT_PUBLIC_BACKEND_URL:-http://127.0.0.1:8000}" npm run dev'
 
 chat-web-test: ## Run frontend tests for the Next.js chat shell
 	cd $(CHAT_WEB_DIR) && npm test
 
 chat-web-build: ## Build the Next.js chat shell for production
-	cd $(CHAT_WEB_DIR) && npm run build
+	@bash -lc 'cd $(CHAT_WEB_DIR) && env -u NEXT_PUBLIC_BACKEND_URL npm run build'
 
 docs-check: ## Validate baseline docstring coverage (module + public callables)
 	$(UV) run python scripts/check_doc_coverage.py
