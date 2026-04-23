@@ -5,12 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from extension_api import (
-    ExtensionArtifactSemantics,
     ExtensionBundleSemantics,
-    ExtensionFieldSemantics,
     ExtensionManifest,
     ExtensionResultSection,
-    ExtensionStageSemantics,
     FieldSpec,
     KVBlock,
     KVItem,
@@ -23,7 +20,10 @@ from or_core.pipeline import ORPipeline
 from or_core.scenario import ScenarioAssembler, ScenarioPresetLoader
 
 from agent_core.config import default_scenario_path
-from agent_core.default_or_contract import DEFAULT_OR_STAGE_ORDER
+from agent_core.default_or_adapters import (
+    DefaultOrSemanticsAdapter,
+    DefaultOrStateSyncAdapter,
+)
 
 DEFAULT_OR_EXTENSION_ALIAS = "default_or"
 
@@ -164,6 +164,13 @@ _DEFAULT_OR_MANIFEST = ExtensionManifest(
     ui_metadata={"kind": "default_or", "legacy_or_pipeline": True},
 )
 
+_DEFAULT_OR_SEMANTICS_ADAPTER = DefaultOrSemanticsAdapter(
+    alias=DEFAULT_OR_EXTENSION_ALIAS,
+    manifest=_DEFAULT_OR_MANIFEST,
+    field_aliases=_DEFAULT_OR_FIELD_ALIASES,
+    stage_hints=_DEFAULT_OR_STAGE_HINTS,
+)
+
 
 class DefaultORCompatibilityRuntime:
     """Compatibility runtime that adapts the legacy OR pipeline to the extension SDK."""
@@ -272,7 +279,7 @@ class DefaultORCompatibilityRuntime:
 
     def build_nl_semantics(self) -> dict[str, object]:
         """Returns typed semantics so the new chat can treat `default_or` generically."""
-        return _build_default_or_semantics().model_dump(mode="json")
+        return _DEFAULT_OR_SEMANTICS_ADAPTER.build_bundle_semantics().model_dump(mode="json")
 
 
 class DefaultORExtensionProvider:
@@ -302,99 +309,21 @@ def default_or_extension_draft_from_scenario_draft(
     draft: ScenarioDraft,
 ) -> dict[str, dict[str, Any]]:
     """Builds a generic extension draft mirror from the legacy ScenarioDraft."""
-    mirrored: dict[str, dict[str, Any]] = {}
-    for stage_id in DEFAULT_OR_STAGE_ORDER:
-        payload = getattr(draft, stage_id)
-        if payload:
-            mirrored[stage_id] = dict(payload)
-    return mirrored
+    return DefaultOrStateSyncAdapter.to_extension_draft(draft)
 
 
 def default_or_scenario_draft_from_extension_draft(
     draft: dict[str, object],
 ) -> ScenarioDraft:
     """Build a legacy `ScenarioDraft` mirror from the generic extension draft."""
-    return ScenarioDraft(
-        production=dict(draft.get("production", {}) or {}),
-        shipment=dict(draft.get("shipment", {}) or {}),
-        assignment=dict(draft.get("assignment", {}) or {}),
-        routing=dict(draft.get("routing", {}) or {}),
-        preset_ref=draft.get("preset_ref") if isinstance(draft.get("preset_ref"), str) else None,
-    )
+    return DefaultOrStateSyncAdapter.to_scenario_draft(draft)
 
 
 def _default_or_model_artifact() -> str:
     """Return a grounded read-only description of the legacy four-stage OR pipeline."""
-    return "\n".join(
-        [
-            "# default_or",
-            "",
-            "Это встроенный четырёхэтапный OR-конвейер:",
-            "1. production — план выпуска продукции через LP.",
-            "2. shipment — план отгрузки через min-cost flow.",
-            "3. assignment — назначение ресурсов на клиентские задачи.",
-            "4. routing — маршрутизация транспорта.",
-            "",
-            "Каждый этап принимает JSON-пейлоад по своему stage_id и использует результат",
-            "предыдущих этапов как часть runtime-входа.",
-        ]
-    )
+    return _DEFAULT_OR_SEMANTICS_ADAPTER.build_model_artifact()
 
 
 def _build_default_or_semantics() -> ExtensionBundleSemantics:
     """Build typed parser/NL/explain semantics for the legacy default OR bundle."""
-    stages: list[ExtensionStageSemantics] = []
-    for stage in _DEFAULT_OR_MANIFEST.stage_graph:
-        fields: list[ExtensionFieldSemantics] = []
-        field_aliases = _DEFAULT_OR_FIELD_ALIASES.get(stage.stage_id, {})
-        for field in stage.field_specs:
-            fields.append(
-                ExtensionFieldSemantics(
-                    stage_id=stage.stage_id,
-                    field_path=field.field_path,
-                    label=field.label,
-                    aliases=list(field_aliases.get(field.field_path, field.aliases)),
-                    value_type="json",
-                    help=field.description,
-                    example=field.examples[0] if field.examples else None,
-                )
-            )
-        stages.append(
-            ExtensionStageSemantics(
-                stage_id=stage.stage_id,
-                label=stage.label,
-                aliases=list(stage.aliases)
-                + list(_DEFAULT_OR_MANIFEST.stage_aliases.get(stage.stage_id, [])),
-                examples=list(stage.examples),
-                expectation_hint=_DEFAULT_OR_STAGE_HINTS.get(stage.stage_id),
-                fields=fields,
-            )
-        )
-
-    manifest_json = _DEFAULT_OR_MANIFEST.model_dump_json(indent=2)
-    return ExtensionBundleSemantics(
-        mode="runtime_bundle",
-        alias=DEFAULT_OR_EXTENSION_ALIAS,
-        dsl_format="default_or_legacy",
-        stage_ids=list(DEFAULT_OR_STAGE_ORDER),
-        inputs=[],
-        stages=stages,
-        artifacts=[
-            ExtensionArtifactSemantics(
-                id="model",
-                kind="model",
-                label="Каноническая схема default_or",
-                language="markdown",
-                content=_default_or_model_artifact(),
-                summary="Описание встроенного четырёхэтапного OR-конвейера.",
-            ),
-            ExtensionArtifactSemantics(
-                id="extension",
-                kind="extension",
-                label="Manifest default_or",
-                language="json",
-                content=manifest_json,
-                summary="Текущий manifest встроенного extension `default_or`.",
-            ),
-        ],
-    )
+    return _DEFAULT_OR_SEMANTICS_ADAPTER.build_bundle_semantics()

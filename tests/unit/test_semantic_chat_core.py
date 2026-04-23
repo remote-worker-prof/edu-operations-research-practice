@@ -63,6 +63,23 @@ def test_semantic_command_interpreter_handles_mode_and_explain_commands() -> Non
     assert explain_resolution.intent.target == "extension"
 
 
+def test_semantic_command_interpreter_accepts_multi_word_stage_alias_in_payload() -> None:
+    """`/payload` should resolve stage aliases with spaces through the shared schema layer."""
+    manifest, semantics = _bundle("study_planner")
+
+    resolution = SemanticCommandInterpreter().interpret(
+        message='/payload time budget {"weekly_hours":12,"weeks":4}',
+        manifest=manifest,
+        semantics=semantics,
+    )
+
+    assert resolution is not None
+    assert resolution.intent.kind == "patch_draft"
+    assert resolution.grounded is True
+    assert resolution.proposals[0].stage_id == "time_budget"
+    assert resolution.proposals[0].payload == {"weekly_hours": 12, "weeks": 4}
+
+
 def test_semantic_nl_engine_extracts_grounded_study_planner_patch_proposals() -> None:
     """Open-ended NL should stay grounded in the active extension semantics."""
     manifest, semantics = _bundle("study_planner")
@@ -82,6 +99,24 @@ def test_semantic_nl_engine_extracts_grounded_study_planner_patch_proposals() ->
         ("time_budget", "weekly_hours"),
         ("time_budget", "weeks"),
     }
+
+
+def test_semantic_nl_engine_reports_ambiguous_stage_hits_for_cross_stage_message() -> None:
+    """Cross-stage NL should clarify instead of mutating the draft blindly."""
+    manifest, semantics = _bundle("study_planner")
+
+    resolution = SemanticIntentEngine().interpret(
+        message='course_names ["Math"] weekly_hours 12',
+        current_stage=None,
+        manifest=manifest,
+        semantics=semantics,
+        model_alias=None,
+    )
+
+    assert resolution.intent.kind == "patch_draft"
+    assert resolution.grounded is False
+    assert resolution.proposals == []
+    assert any("несколько этапов" in item for item in resolution.clarifications)
 
 
 def test_semantic_nl_engine_extracts_default_or_patch_proposals_without_hardcoded_product_path(

@@ -98,6 +98,18 @@ def stage_alias_map(
     return mapping
 
 
+def stage_alias_items_by_specificity(
+    *,
+    manifest: ExtensionManifest,
+    semantics: ExtensionBundleSemantics | None,
+) -> list[tuple[str, str]]:
+    """Return stage aliases sorted from the most specific to the least specific."""
+    return sorted(
+        stage_alias_map(manifest=manifest, semantics=semantics).items(),
+        key=lambda item: (-len(item[0]), item[0]),
+    )
+
+
 def field_catalog(
     *,
     manifest: ExtensionManifest,
@@ -129,6 +141,23 @@ def field_alias_map(
     for alias, field_path in manifest_aliases.items():
         mapping[alias.strip().lower()] = field_path
     return mapping
+
+
+def field_alias_items_by_specificity(
+    *,
+    manifest: ExtensionManifest,
+    semantics: ExtensionBundleSemantics | None,
+    stage_id: str,
+) -> list[tuple[str, str]]:
+    """Return field aliases sorted from the most specific to the least specific."""
+    return sorted(
+        field_alias_map(
+            manifest=manifest,
+            semantics=semantics,
+            stage_id=stage_id,
+        ).items(),
+        key=lambda item: (-len(item[0]), item[0]),
+    )
 
 
 def resolve_stage_id(

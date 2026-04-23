@@ -19,10 +19,9 @@ from extension_api import (
 from or_core.models import ORResult, ScenarioDraft
 from pydantic import BaseModel
 
+from agent_core.default_or_adapters import DefaultOrStateSyncAdapter
 from agent_core.default_or_extension import (
     DEFAULT_OR_EXTENSION_ALIAS,
-    default_or_extension_draft_from_scenario_draft,
-    default_or_scenario_draft_from_extension_draft,
 )
 from agent_core.extension_commands import parse_extension_command
 from agent_core.models import AgentSession, ChatMessage, CommandResult, StageStatusSnapshot
@@ -275,11 +274,7 @@ def sync_default_or_legacy_from_generic_state(session: AgentSession) -> None:
     """Synchronizes legacy default_or slots from the generic extension state."""
     if not is_default_or_extension(session.extension_alias):
         return
-    session.scenario_draft = default_or_scenario_draft_from_extension_draft(
-        session.extension_draft
-    )
-    if session.extension_result is None:
-        session.or_result = None
+    DefaultOrStateSyncAdapter.sync_legacy_from_generic(session)
 
 
 def _serialize_extension_result_value(
@@ -708,35 +703,12 @@ def sync_default_or_compatibility_state(
     discovered = registry.require(DEFAULT_OR_EXTENSION_ALIAS)
     manifest = discovered.manifest
     runtime = discovered.create_runtime()
-
-    session.extension_draft = default_or_extension_draft_from_scenario_draft(session.scenario_draft)
-
-    if session.or_result is None:
-        session.extension_result = None
-        session.extension_result_sections = []
-    else:
-        serialized_result, serialization_warning = _serialize_extension_result(session.or_result)
-        session.extension_result = serialized_result
-        session.extension_result_sections = runtime.build_result_sections(session.or_result)
-        if serialization_warning and serialization_warning not in session.warnings:
-            session.warnings.append(serialization_warning)
-
-    stage_ids = stage_order_for_manifest(manifest)
-    raw_errors = runtime.validate_draft(session.extension_draft)
-    normalized_errors = {stage_id: list(raw_errors.get(stage_id, [])) for stage_id in stage_ids}
-    session.validation_errors_by_stage = normalized_errors
-    session.missing_fields = [stage_id for stage_id in stage_ids if normalized_errors[stage_id]]
-    session.collection_state.ready_to_run = not session.missing_fields
-    current_stage = session.collection_state.current_stage
-    if (
-        current_stage is None
-        or current_stage not in stage_ids
-        or current_stage not in session.missing_fields
-    ):
-        session.collection_state.current_stage = _next_missing_stage(session, manifest)
-    session.extension_stage_statuses = build_stage_statuses_for_manifest(
-        manifest=manifest,
+    DefaultOrStateSyncAdapter.sync_generic_from_legacy(
         session=session,
+        manifest=manifest,
+        runtime=runtime,
+        serialize_result=_serialize_extension_result,
+        build_stage_statuses=build_stage_statuses_for_manifest,
     )
 
 

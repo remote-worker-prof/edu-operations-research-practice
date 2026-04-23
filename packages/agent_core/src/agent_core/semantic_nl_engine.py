@@ -20,7 +20,7 @@ from agent_core.semantic_schema import (
     field_catalog,
     resolve_field_path,
     resolve_stage_id,
-    stage_alias_map,
+    stage_alias_items_by_specificity,
     stage_catalog,
 )
 
@@ -57,7 +57,13 @@ _RESET_MARKERS = ("сбрось", "очисти", "reset")
 _HELP_MARKERS = ("помощ", "help", "что дальше", "как работать", "как пользоваться")
 _EXPLAIN_MARKERS = ("объяс", "пояс", "explain")
 _MODEL_MARKERS = ("model", "model.orx", "модель")
-_EXTENSION_MARKERS = ("extension", "extension.yaml", "sidecar", "конфиг", "extension.yaml")
+_EXTENSION_MARKERS = (
+    "extension",
+    "extension.yaml",
+    "sidecar",
+    "конфиг",
+    "extension.yaml",
+)
 _STEP_MARKERS = ("step", "stage", "шаг", "этап")
 _CONFIRM_MARKERS = ("да", "подтверждаю", "подтвердить", "ок", "согласен")
 _REJECT_MARKERS = ("нет", "отмена", "отклонить", "не подтверждаю")
@@ -144,84 +150,10 @@ def _find_alias_match(lower: str, aliases: list[str]) -> tuple[int, str] | None:
 
 
 @dataclass(frozen=True)
-class SemanticIntentEngine:
-    """Strategy that extracts typed intents and grounded patch proposals from NL."""
+class NonMutatingIntentRecognizer:
+    """Recognize read-only or navigation intents without producing draft patches."""
 
-    llm_client: LLMClient | None = None
-
-    def interpret(
-        self,
-        *,
-        message: str,
-        current_stage: str | None,
-        manifest: ExtensionManifest,
-        semantics: ExtensionBundleSemantics | None,
-        model_alias: str | None,
-    ) -> IntentResolution:
-        text = message.strip()
-        if not text:
-            return IntentResolution(
-                source="semantic_nl",
-                intent=SemanticIntent(kind="unknown", raw_message=text),
-                confidence=0.0,
-                grounded=False,
-            )
-
-        lower = text.lower()
-        if lower.startswith(_COMMAND_PREFIXES) or (text.startswith("{") and text.endswith("}")):
-            return IntentResolution(
-                source="semantic_nl",
-                intent=SemanticIntent(kind="unknown", raw_message=text),
-                confidence=0.0,
-                grounded=False,
-            )
-
-        if lower in _CONFIRM_MARKERS:
-            return IntentResolution(
-                source="semantic_nl",
-                intent=SemanticIntent(kind="confirm", raw_message=text),
-                confidence=1.0,
-                grounded=True,
-            )
-        if lower in _REJECT_MARKERS:
-            return IntentResolution(
-                source="semantic_nl",
-                intent=SemanticIntent(kind="reject", raw_message=text),
-                confidence=1.0,
-                grounded=True,
-            )
-
-        intent = self._recognize_non_mutating_intent(
-            text=text,
-            lower=lower,
-            current_stage=current_stage,
-            manifest=manifest,
-            semantics=semantics,
-        )
-        if intent is not None:
-            return intent
-
-        result = self._extract_patch_proposals(
-            text=text,
-            lower=lower,
-            current_stage=current_stage,
-            manifest=manifest,
-            semantics=semantics,
-        )
-        if result.proposals and result.grounded:
-            return result
-
-        llm_result = self._try_llm_patch_fallback(
-            text=text,
-            current_stage=current_stage,
-            manifest=manifest,
-            semantics=semantics,
-            model_alias=model_alias,
-            deterministic_issues=result.clarifications,
-        )
-        return llm_result or result
-
-    def _recognize_non_mutating_intent(
+    def recognize(
         self,
         *,
         text: str,
@@ -287,9 +219,10 @@ class SemanticIntentEngine:
                 confidence=0.8,
                 grounded=True,
             )
+
+        if not _contains_marker(lower, _STEP_MARKERS):
+            return None
         for stage in stage_catalog(manifest=manifest, semantics=semantics):
-            if not _contains_marker(lower, _STEP_MARKERS):
-                continue
             aliases = [stage.stage_id, stage.label, *stage.aliases]
             if any(
                 re.search(rf"(?<!\w){re.escape(alias.lower())}(?!\w)", lower)
@@ -303,7 +236,12 @@ class SemanticIntentEngine:
                 )
         return None
 
-    def _extract_patch_proposals(
+
+@dataclass(frozen=True)
+class GroundedPatchExtractor:
+    """Extract grounded patch proposals using only known stage/field semantics."""
+
+    def extract(
         self,
         *,
         text: str,
@@ -326,18 +264,22 @@ class SemanticIntentEngine:
             stage_ids = [current_stage]
             explicit = False
         else:
-            inferred = self._infer_stage_ids_from_field_hits(
+            inferred_stage_ids, inferred_clarifications = self._infer_stage_ids_from_field_hits(
                 lower=lower,
                 manifest=manifest,
                 semantics=semantics,
             )
-            stage_ids = inferred[0]
+            stage_ids = inferred_stage_ids
             explicit = False
-            clarifications.extend(inferred[1])
+            clarifications.extend(inferred_clarifications)
 
         proposals: list[PatchProposal] = []
         for stage_id in stage_ids:
-            for field in field_catalog(manifest=manifest, semantics=semantics, stage_id=stage_id):
+            for field in field_catalog(
+                manifest=manifest,
+                semantics=semantics,
+                stage_id=stage_id,
+            ):
                 aliases = [field.field_path, field.label, *field.aliases]
                 match = _find_alias_match(lower, aliases)
                 if match is None:
@@ -390,9 +332,11 @@ class SemanticIntentEngine:
         manifest: ExtensionManifest,
         semantics: ExtensionBundleSemantics | None,
     ) -> list[str]:
-        alias_map = stage_alias_map(manifest=manifest, semantics=semantics)
         detected: list[str] = []
-        for alias, stage_id in alias_map.items():
+        for alias, stage_id in stage_alias_items_by_specificity(
+            manifest=manifest,
+            semantics=semantics,
+        ):
             if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", lower):
                 detected.append(stage_id)
         return list(dict.fromkeys(detected))
@@ -422,7 +366,14 @@ class SemanticIntentEngine:
             ]
         return [], ["Stage не указан и не может быть выведен из известных полей."]
 
-    def _try_llm_patch_fallback(
+
+@dataclass(frozen=True)
+class LlmFallbackExtractor:
+    """Ask an LLM for a grounded patch plan when deterministic extraction is insufficient."""
+
+    llm_client: LLMClient | None = None
+
+    def extract(
         self,
         *,
         text: str,
@@ -443,19 +394,22 @@ class SemanticIntentEngine:
             stage_lines.append(f"- {stage.stage_id}: {field_names}")
 
         prompt = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты извлекаешь intent и патчи только в терминах заданной "
-                        "schema-driven semantics. Верни только JSON формата: "
-                        '{"intent":"patch_draft","patches":[{"stage_id":"<stage>","field_path":"<field>","value":<json>}],"clarifications":["..."]}'
-                    ),
-                },
+            {
+                "role": "system",
+                "content": (
+                    "Ты извлекаешь intent и патчи только в терминах заданной "
+                    "schema-driven semantics. Верни только JSON формата: "
+                    '{"intent":"patch_draft","patches":[{"stage_id":"<stage>",'
+                    '"field_path":"<field>","value":<json>}],"clarifications":["..."]}'
+                ),
+            },
             {
                 "role": "user",
                 "content": (
                     f"Active stage: {current_stage or 'none'}\n"
-                    f"Known stages and fields:\n" + "\n".join(stage_lines) + f"\nUser text: {text}"
+                    f"Known stages and fields:\n"
+                    + "\n".join(stage_lines)
+                    + f"\nUser text: {text}"
                 ),
             },
         ]
@@ -526,3 +480,84 @@ class SemanticIntentEngine:
             return None
         except Exception:
             return None
+
+
+@dataclass(frozen=True)
+class SemanticIntentEngine:
+    """Strategy that extracts typed intents and grounded patch proposals from NL."""
+
+    llm_client: LLMClient | None = None
+
+    def interpret(
+        self,
+        *,
+        message: str,
+        current_stage: str | None,
+        manifest: ExtensionManifest,
+        semantics: ExtensionBundleSemantics | None,
+        model_alias: str | None,
+    ) -> IntentResolution:
+        text = message.strip()
+        if not text:
+            return IntentResolution(
+                source="semantic_nl",
+                intent=SemanticIntent(kind="unknown", raw_message=text),
+                confidence=0.0,
+                grounded=False,
+            )
+
+        lower = text.lower()
+        if lower.startswith(_COMMAND_PREFIXES) or (text.startswith("{") and text.endswith("}")):
+            return IntentResolution(
+                source="semantic_nl",
+                intent=SemanticIntent(kind="unknown", raw_message=text),
+                confidence=0.0,
+                grounded=False,
+            )
+
+        if lower in _CONFIRM_MARKERS:
+            return IntentResolution(
+                source="semantic_nl",
+                intent=SemanticIntent(kind="confirm", raw_message=text),
+                confidence=1.0,
+                grounded=True,
+            )
+        if lower in _REJECT_MARKERS:
+            return IntentResolution(
+                source="semantic_nl",
+                intent=SemanticIntent(kind="reject", raw_message=text),
+                confidence=1.0,
+                grounded=True,
+            )
+
+        recognizer = NonMutatingIntentRecognizer()
+        non_mutating = recognizer.recognize(
+            text=text,
+            lower=lower,
+            current_stage=current_stage,
+            manifest=manifest,
+            semantics=semantics,
+        )
+        if non_mutating is not None:
+            return non_mutating
+
+        grounded_extractor = GroundedPatchExtractor()
+        deterministic = grounded_extractor.extract(
+            text=text,
+            lower=lower,
+            current_stage=current_stage,
+            manifest=manifest,
+            semantics=semantics,
+        )
+        if deterministic.proposals and deterministic.grounded:
+            return deterministic
+
+        llm_fallback = LlmFallbackExtractor(llm_client=self.llm_client).extract(
+            text=text,
+            current_stage=current_stage,
+            manifest=manifest,
+            semantics=semantics,
+            model_alias=model_alias,
+            deterministic_issues=deterministic.clarifications,
+        )
+        return llm_fallback or deterministic
