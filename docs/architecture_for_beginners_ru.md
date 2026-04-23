@@ -152,18 +152,19 @@ User
   |
   | message
   v
-/chat/turn or /api/chat/turn
+/api/chat/threads/{thread_id}/turn
   |
   v
-AgentService.handle_turn()
+AgentService.handle_slash_turn()
   |
   +--> get/create AgentSession
-  +--> DialogGraph.invoke(...)
+  +--> ConversationOrchestrator.handle(...)
           |
           +--> add_user_message
           +--> collect_inputs
                   |
-                  +--> parse NL or parse command
+                  +--> parse slash или semantics-driven NL
+                  +--> reject bare legacy commands in /app path
                   +--> update ScenarioDraft / confirmation state
                   +--> recompute missing_fields / ready_to_run
                   |
@@ -177,14 +178,15 @@ AgentService.handle_turn()
   |
   +--> save updated session
   v
-HTML partial or JSON TurnResult
+JSON TurnResult (thread API)
 ```
 
 Самое важное в этом flow:
 
 - сообщение не идёт напрямую в OR-солверы;
 - сначала оно проходит через слой диалога и валидации;
-- OR-запуск происходит только по явной команде `run`;
+- команды без `/` (`start/json/set/run`) в `/app` не исполняются и считаются legacy-only;
+- OR-запуск происходит только по явной команде `/solve` (или эквивалентному solve-intent);
 - если входы неполные или есть неподтверждённые patch-и, расчёт блокируется;
 - после успешного расчёта в сессию сохраняется `or_result`, а затем строится объяснение.
 
@@ -197,7 +199,7 @@ HTML partial or JSON TurnResult
 Пользователь отправляет:
 
 ```text
-start
+/new default_or
 ```
 
 Система создаёт пустой `ScenarioDraft` и подсказывает, что сейчас нужно заполнить stage `production`.
@@ -471,8 +473,9 @@ run
 3. [docs/chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md) — подробный guide по тому, как именно общаться с чатом и отправлять данные.
 4. [docs/chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md) — точный язык ввода чата, его строгость и safe-практики.
 5. [docs/natural_language_assistant_ru.md](natural_language_assistant_ru.md) — короткий контракт NL-режима.
-6. [docs/or_subgraph_math.md](or_subgraph_math.md) — математический смысл 4 этапов OR-подграфа.
-7. Код:
+6. [docs/legacy_chat_deprecation_plan.md](legacy_chat_deprecation_plan.md) — текущая граница `/app` vs `/legacy` и этапы retirement.
+7. [docs/or_subgraph_math.md](or_subgraph_math.md) — математический смысл 4 этапов OR-подграфа.
+8. Код:
    - `apps/webapp/src/webapp/main.py`
    - `packages/agent_core/src/agent_core/service.py`
    - `packages/agent_core/src/agent_core/dialog_graph.py`

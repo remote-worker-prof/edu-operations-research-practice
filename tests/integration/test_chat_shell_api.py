@@ -153,6 +153,28 @@ def test_thread_turn_supports_matrix_payloads_and_validation_hints() -> None:
     )
 
 
+def test_thread_transport_rejects_legacy_bare_commands_in_primary_shell() -> None:
+    """`/app` thread transport should reject bare command syntax and point users to slash/guided."""
+    client = TestClient(create_app())
+    thread_id = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "study_planner"},
+    ).json()["thread"]["thread_id"]
+
+    response = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={"model_alias": "openai_default", "message": "start"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assistant_message = payload["turn"]["assistant_message"]
+    assert "Команда без `/` (`start`) недоступна в новом чате `/app`." in assistant_message
+    assert "/legacy" in assistant_message
+    assert payload["interaction"]["last_intent"]["source"] == "legacy_bare"
+    assert payload["interaction"]["current_stage"] == "courses"
+    assert payload["interaction"]["draft"] == {}
+
+
 def test_copilotkit_agui_endpoint_streams_agent_events() -> None:
     """CopilotKit endpoint should stream AG-UI events over the backend-owned thread state."""
     client = TestClient(create_app())

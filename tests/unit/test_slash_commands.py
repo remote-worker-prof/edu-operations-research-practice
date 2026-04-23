@@ -6,7 +6,6 @@ from agent_core.models import ChatTurnRequest
 from agent_core.service import AgentService
 from agent_core.slash_commands import (
     parse_slash_command,
-    translated_legacy_command,
     validate_payload_json,
 )
 
@@ -35,14 +34,31 @@ def test_validate_payload_json_rejects_non_object() -> None:
     assert error == "Команда /payload ожидает JSON-объект."
 
 
-def test_translated_legacy_command_maps_to_existing_runtime_contract() -> None:
-    """Slash commands should reuse the stable deterministic backend where possible."""
-    command = parse_slash_command('/payload priorities {"priority":[5,4]}')
-    assert command is not None
+def test_parse_slash_command_returns_none_for_bare_command_syntax() -> None:
+    """Legacy bare commands should not be parsed as slash commands in the primary shell."""
+    assert parse_slash_command("start") is None
+    assert parse_slash_command("run") is None
+    assert parse_slash_command('json priorities {"priority":[5,4]}') is None
 
-    translated = translated_legacy_command(command)
 
-    assert translated == 'json priorities {"priority":[5,4]}'
+def test_agent_service_rejects_bare_command_in_slash_turn_path() -> None:
+    """Primary slash/thread path should reject bare command syntax with deterministic guidance."""
+    service = AgentService()
+    session = service.create_session(model_alias="openai_default")
+
+    result = service.handle_slash_turn(
+        ChatTurnRequest(
+            session_id=session.session_id,
+            model_alias="openai_default",
+            message="start",
+        )
+    )
+
+    assert "Команда без `/` (`start`) недоступна в новом чате `/app`." in result.assistant_message
+    assert "/help" in result.assistant_message
+    assert result.session.last_intent_resolution is not None
+    assert result.session.last_intent_resolution.source == "legacy_bare"
+    assert result.session.extension_draft == {}
 
 
 def test_agent_service_handles_new_extension_thread_reset_via_slash_new() -> None:

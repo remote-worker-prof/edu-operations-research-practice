@@ -4,9 +4,10 @@
 Это новый React chat shell с guided UX. Старый HTMX/Jinja интерфейс живёт на
 `/legacy` и считается fallback-режимом.
 
-Ниже в документе по-прежнему описан точный backend-язык ввода, потому что он
-нужен для power-user режима, тестов и legacy-совместимости. Но для обычного
-пользователя главный путь теперь такой:
+Ниже в документе описан точный backend-язык ввода для slash/power-user режима и
+legacy-совместимости. Важно: в основном интерфейсе `/app/` bare-синтаксис без
+`/` больше не исполняется как команда. Для обычного пользователя главный путь
+теперь такой:
 
 - выбрать extension;
 - заполнить шаги через guided editor;
@@ -33,6 +34,7 @@
 Selenium-видео, смотрите [video_scenarios/README.md](video_scenarios/README.md).
 Если нужен короткий технический контракт именно NL-режима, смотрите
 [natural_language_assistant_ru.md](natural_language_assistant_ru.md).
+План поэтапного вывода legacy-shell и bare-команд: [legacy_chat_deprecation_plan.md](legacy_chat_deprecation_plan.md).
 
 ## TL;DR
 
@@ -57,14 +59,14 @@ Selenium-видео, смотрите [video_scenarios/README.md](video_scenario
   - `/reset`
   - `/explain model|extension|result|step`
   - `/mode guided|power`
-- Legacy bare-команды `json <stage> {...}` и `run` остаются backend-compatible,
-  но уже не считаются основным интерфейсом.
+- Legacy bare-команды (`start`, `json`, `set`, `run` без `/`) доступны только
+  в legacy-shell на `/legacy`.
 - Если нужен полный reference по этому полу-DSL, лучше сразу открыть
   [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 - Если в сообщении есть и фраза “запусти”, и параметры, чат сначала извлечёт параметры и попросит подтверждение, а не побежит считать.
-- Если вы не уверены, используйте безопасный режим:
-  - `json <stage> {...}`
-  - `set <stage>.<field> <value>`
+- Если вы не уверены, используйте безопасный slash-режим:
+  - `/payload <stage> {...}`
+  - `/set <stage>.<field> <value>`
 - `routing.client_demands` вручную вводить не нужно: это derived-поле, его система получает из этапа `shipment`.
 - Если хочется не только reference, но и готовые walkthrough-разборы с exact сообщениями,
   UI-checkpoints и ожидаемыми числами, откройте
@@ -197,53 +199,52 @@ production profits [40,30], products ["A","B"]
 
 ```text
 Хотите просто начать новую сессию?
-  -> start
+  -> /new [extension]
 
 Хотите увидеть текущий черновик?
-  -> show input
+  -> /show draft
 
 У вас уже есть готовый JSON для целого stage?
-  -> json <stage> { ... }
-
-Хотите отправить чистый JSON для уже выбранного stage?
-  -> edit <stage>
-  -> затем просто { ... }
+  -> /payload <stage> { ... }
 
 Хотите поправить одно конкретное поле?
-  -> set <stage>.<field> <value>
+  -> /set <stage>.<field> <value>
 
 Хотите писать почти обычным языком?
   -> natural-language реплика
   -> потом подтвердить `да` или отклонить `нет`
 
 Хотите перейти к следующему незаполненному stage?
-  -> next
+  -> /next
 
 Хотите готовый демонстрационный пример?
-  -> load preset demo
+  -> /payload ... (или использовать preset через UI)
 
 Все данные уже готовы и валидны?
-  -> run
+  -> /solve
 ```
 
 ## 5. Когда сообщение считается командой, а когда natural-language
 
 Это важная часть поведения чата.
 
-### Явные команды
+### Явные команды в `/app`
 
 Если сообщение выглядит как точная команда, чат отправляет его в command parser.
 Практически это относится к сообщениям вроде:
 
-- `start`
-- `reset`
-- `show input`
-- `show`
-- `next`
-- `json ...`
-- `set ...`
-- `edit ...`
-- `load preset demo`
+- `/new`
+- `/use`
+- `/show ...`
+- `/next`
+- `/payload ...`
+- `/set ...`
+- `/solve`
+- `/reset`
+- `/help`
+
+Команды без префикса `/` в `/app` не исполняются как command surface и дают
+подсказку перейти на slash или guided UI.
 
 ### Natural-language сообщения
 
@@ -282,10 +283,12 @@ run
 Такое сообщение не запускает расчёт сразу.
 Сначала чат извлечёт параметры, покажет их и попросит `да/нет`.
 
-## 6. Базовые команды, которые реально поддерживает чат
+## 6. Legacy appendix: bare-команды для `/legacy`
 
-Этот раздел оставлен как обзор.
-Если нужен главный reference по синтаксису, alias-ам, строгости языка и различию
+Этот раздел оставлен как справка по старому HTMX shell (`/legacy`) и
+legacy/internal endpoint-ам (`/chat/turn`, `/api/chat/turn`).
+В основном интерфейсе `/app` используйте slash-формы из разделов выше.
+Если нужен полный reference по синтаксису, alias-ам, строгости языка и различию
 между `json`, `set`, raw JSON и NL-вводом, используйте
 [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md).
 

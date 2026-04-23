@@ -64,25 +64,6 @@ def parse_slash_command(message: str) -> SlashCommand | None:
     return SlashCommand(name="invalid", payload=text)
 
 
-def translated_legacy_command(command: SlashCommand) -> str | None:
-    """Maps slash commands to stable legacy deterministic commands when possible."""
-    if command.name == "next":
-        return "next"
-    if command.name == "solve":
-        return "run"
-    if command.name == "run":
-        return "run"
-    if command.name == "reset":
-        return "reset"
-    if command.name == "step" and command.arg:
-        return f"edit {command.arg}"
-    if command.name == "payload" and command.arg and command.payload:
-        return f"json {command.arg} {command.payload}"
-    if command.name == "set" and command.payload:
-        return f"set {command.payload}"
-    return None
-
-
 def validate_payload_json(command: SlashCommand) -> str | None:
     """Returns a user-facing error when `/payload` carries malformed JSON."""
     if command.name != "payload":

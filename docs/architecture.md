@@ -31,6 +31,10 @@
 - `GET /api/chat/threads/{thread_id}/interaction`
 - `POST /api/copilotkit`
 
+В primary transport (`/app` + thread API) bare-команды без `/` (`start/json/set/run`)
+не исполняются: пользователю возвращается deterministic подсказка перейти на
+guided UI или slash-контракт.
+
 Старые `POST /chat/turn` и `POST /api/chat/turn` остаются в legacy/internal режиме
 ради совместимости и fallback shell.
 
@@ -58,18 +62,21 @@
 ## 3. Sequence: `chat -> collect_inputs -> run_or -> explanation`
 
 1. Пользователь отправляет сообщение в `webapp`.
-2. `AgentService.handle_turn()` поднимает/получает сессию и вызывает `DialogGraph`.
+2. `AgentService.handle_slash_turn()` поднимает/получает сессию и вызывает
+   `ConversationOrchestrator`.
 3. Узел `collect_inputs`:
   - сначала пытается интерпретировать свободный текст через `parse_nl_turn`;
   - применяет policy приоритетов: если в реплике есть структурированные поля, сначала extraction; intent `run` рассматривается только когда поля не извлечены;
   - формирует `candidate patches`, confidence и уточнения;
   - при низкой уверенности может использовать optional LLM-assisted fallback, но всё равно не применяет patch автоматически;
   - применяет patch только после явного подтверждения `да/нет`;
-  - при необходимости переключается на детерминированные команды (`start`, `json`, `set`, `run`, ...);
+  - в primary shell использует slash-команды и semantics-driven intent resolution;
+  - bare-команды без `/` в этом пути не исполняются и считаются legacy-only;
   - обновляет `ScenarioDraft`;
   - валидирует stage и вычисляет `ready_to_run`.
 4. Пока `ready_to_run = false`, агент продолжает задавать уточняющие вопросы по stage.
-5. По явной команде `run` и при `ready_to_run = true` узел `run_or_subgraph`:
+5. По явной команде `/solve` (или NL `solve` intent) и при `ready_to_run = true`
+   узел `run_or_subgraph`:
   - собирает `ORPipelineInput` из `ScenarioDraft`;
   - запускает 4 OR-этапа.
   - запуск блокируется, если есть неподтверждённые `candidate patches`.
@@ -177,6 +184,7 @@
 - [architecture_for_beginners_ru.md](architecture_for_beginners_ru.md) — длинный beginner-friendly разбор архитектуры простыми словами.
 - [chat_usage_for_beginners_ru.md](chat_usage_for_beginners_ru.md) — подробный beginner-friendly guide по работе с чатом, командами и форматами ввода.
 - [chat_input_language_for_beginners_ru.md](chat_input_language_for_beginners_ru.md) — отдельный reference по языку ввода чата, его строгости и stage-by-stage DSL-примерам.
+- [legacy_chat_deprecation_plan.md](legacy_chat_deprecation_plan.md) — текущая граница совместимости и этапы вывода `/legacy`.
 - `docs/dev_build_run.md` — локальный/dev/docker запуск.
 - `docs/git_ssh_github.md` — Git/SSH/GitHub workflow для репозитория.
 - `docs/or_subgraph_math.md` — краткая формализация оптимизационных моделей OR-подграфа.
