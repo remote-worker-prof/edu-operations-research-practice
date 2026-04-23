@@ -213,9 +213,19 @@ class ReactChatPage:
         return self
 
     def wait_for_shell(self):
-        """Дожидается появления корневого React shell."""
-        return self.wait.until(
+        """Дожидается появления React shell и его первого рабочего guided state."""
+        self.wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="chat-web-root"]'))
+        )
+        self.wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-testid="active-extension-title"]')
+            )
+        )
+        return self.wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-testid="new-thread-extension-select"]')
+            )
         )
 
     def current_path(self) -> str:
@@ -346,7 +356,12 @@ class ReactChatPage:
 
     def select_new_thread_extension(self, alias: str) -> None:
         """Выбирает шаблон extension для нового треда."""
-        Select(self.find_by_testid("new-thread-extension-select")).select_by_value(alias)
+        select = self.wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-testid="new-thread-extension-select"]')
+            )
+        )
+        Select(select).select_by_value(alias)
 
     def create_new_thread(self, alias: str) -> None:
         """Создаёт новый тред для указанного extension."""
@@ -368,6 +383,15 @@ class ReactChatPage:
             failure_message=f"Команда {testid} не изменила thread state.",
         )
 
+    def set_interaction_mode(self, mode: str) -> None:
+        """Переключает guided/power mode через quick-action кнопку."""
+        button = "power-mode-button" if mode == "power" else "guided-mode-button"
+        self.click_quick_action(button)
+        self.wait_for_condition(
+            lambda: self.text_of("interaction-mode-value") == mode,
+            failure_message=f"React shell не переключился в режим {mode}.",
+        )
+
     def send_power_message(self, message: str) -> None:
         """Отправляет произвольное сообщение через power-user console."""
         thread_id = self.current_thread_id()
@@ -378,6 +402,16 @@ class ReactChatPage:
         self.wait_for_condition(
             lambda: self._message_count(thread_id) > before,
             failure_message="Power console не отправил сообщение в backend thread.",
+        )
+
+    def confirm_pending_proposals(self) -> None:
+        """Подтверждает ожидающие NL-предложения через guided UI."""
+        thread_id = self.current_thread_id()
+        before = self._message_count(thread_id)
+        self._safe_click("confirm-proposals-button")
+        self.wait_for_condition(
+            lambda: self._message_count(thread_id) > before,
+            failure_message="Подтверждение предложений не изменило thread state.",
         )
 
     def _current_step(self) -> dict:

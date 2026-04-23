@@ -119,6 +119,12 @@ export function GuidedPanel({
           <span className="status-strip__label">Сводка</span>
           <strong data-testid="draft-summary-value">{interaction.draft_summary}</strong>
         </div>
+        <div>
+          <span className="status-strip__label">Режим</span>
+          <strong data-testid="interaction-mode-value">
+            {interaction.interaction_mode === "power" ? "power" : "guided"}
+          </strong>
+        </div>
       </div>
 
       <div className="quick-actions" data-testid="quick-actions">
@@ -176,7 +182,71 @@ export function GuidedPanel({
           <strong>Помощь</strong>
           <span>Показать быстрые подсказки по этому сценарию.</span>
         </button>
+        <button
+          className="command-pill command-pill--power"
+          data-testid="guided-mode-button"
+          onClick={() => void onMessage("/mode guided")}
+          type="button"
+        >
+          <strong>Guided</strong>
+          <span>Всегда просить подтверждение перед NL-изменениями.</span>
+        </button>
+        <button
+          className="command-pill command-pill--power"
+          data-testid="power-mode-button"
+          onClick={() => void onMessage("/mode power")}
+          type="button"
+        >
+          <strong>Power</strong>
+          <span>Автоприменять хорошо grounded изменения при высокой уверенности.</span>
+        </button>
       </div>
+
+      {interaction.pending_proposals.length > 0 ? (
+        <section className="card" data-testid="pending-proposals-card">
+          <div className="card__header">
+            <h2>Ожидают подтверждения</h2>
+            <p>
+              Ассистент предложил обновления для текущего черновика. Можно
+              принять или отклонить их одной кнопкой.
+            </p>
+          </div>
+          <div className="proposal-list">
+            {interaction.pending_proposals.map((proposal, index) => (
+              <div
+                className="proposal-item"
+                data-testid={`proposal-item-${index}`}
+                key={`${proposal.stage_id}:${proposal.path ?? "payload"}:${index}`}
+              >
+                <strong>{proposal.stage_id}</strong>
+                <pre>
+                  {proposal.payload
+                    ? JSON.stringify(proposal.payload, null, 2)
+                    : `${proposal.path} = ${JSON.stringify(proposal.value)}`}
+                </pre>
+              </div>
+            ))}
+          </div>
+          <div className="hero__actions">
+            <button
+              className="primary-button"
+              data-testid="confirm-proposals-button"
+              onClick={() => void onMessage("да")}
+              type="button"
+            >
+              Применить
+            </button>
+            <button
+              className="ghost-button"
+              data-testid="reject-proposals-button"
+              onClick={() => void onMessage("нет")}
+              type="button"
+            >
+              Отклонить
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <div className="workspace-grid">
         <section className="card">
@@ -235,7 +305,7 @@ export function GuidedPanel({
         <details
           className="card card--details"
           data-testid="power-mode-card"
-          open={interaction.current_step == null}
+          open={interaction.current_step == null || interaction.interaction_mode === "power"}
         >
           <summary>Режим преподавателя и команды</summary>
           <PowerConsole
@@ -270,6 +340,14 @@ export function GuidedPanel({
                     void onMessage(buildStageCommand(interaction.current_stage, payload));
                     return;
                   }
+                  if (command.name === "/mode") {
+                    void onMessage(
+                      interaction.interaction_mode === "guided"
+                        ? "/mode power"
+                        : "/mode guided",
+                    );
+                    return;
+                  }
                   void onMessage(command.name);
                 }}
                 type="button"
@@ -279,6 +357,10 @@ export function GuidedPanel({
               </button>
             ))}
           </div>
+        </details>
+        <details className="card card--details" data-testid="last-intent-card">
+          <summary>Последний intent</summary>
+          <pre>{JSON.stringify(interaction.last_intent, null, 2)}</pre>
         </details>
         <details className="card card--details" data-testid="raw-draft-card">
           <summary>Черновик</summary>

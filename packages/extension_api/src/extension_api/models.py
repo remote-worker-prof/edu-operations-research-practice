@@ -562,13 +562,54 @@ class ExtensionDisplaySemantics(BaseModel):
     matrices: list[ExtensionMatrixDisplaySemantics] = Field(default_factory=list)
 
 
+class ExtensionFieldSemantics(BaseModel):
+    """Canonical parser/NL metadata for one logical field in a stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str
+    field_path: str
+    label: str
+    aliases: list[str] = Field(default_factory=list)
+    value_type: Literal["number", "string", "json"] = "json"
+    help: str | None = None
+    example: Any = None
+
+
+class ExtensionStageSemantics(BaseModel):
+    """Canonical parser/NL metadata for one logical stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str
+    label: str
+    aliases: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
+    expectation_hint: str | None = None
+    fields: list[ExtensionFieldSemantics] = Field(default_factory=list)
+
+
+class ExtensionArtifactSemantics(BaseModel):
+    """Read-only DSL or semantics artifact exposed by an extension runtime."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: Literal["model", "extension", "semantics_snapshot"]
+    label: str
+    language: str | None = None
+    path: str | None = None
+    content: str | None = None
+    summary: str | None = None
+
+
 class ExtensionBundleSemantics(BaseModel):
     """Typed semantics payload for declarative extension runtimes."""
 
     model_config = ConfigDict(extra="forbid")
 
     supported: bool = True
-    mode: Literal["declarative_bundle"] = "declarative_bundle"
+    mode: Literal["declarative_bundle", "runtime_bundle"] = "declarative_bundle"
     alias: str
     dsl_format: str
     wizard_mode: Literal["linear"] = "linear"
@@ -576,6 +617,8 @@ class ExtensionBundleSemantics(BaseModel):
     symbols: list[ExtensionSymbolSemantics] = Field(default_factory=list)
     inputs: list[ExtensionInputStepSemantics] = Field(default_factory=list)
     display: ExtensionDisplaySemantics = Field(default_factory=ExtensionDisplaySemantics)
+    stages: list[ExtensionStageSemantics] = Field(default_factory=list)
+    artifacts: list[ExtensionArtifactSemantics] = Field(default_factory=list)
 
 
 class SlashCommandSpec(BaseModel):
@@ -616,6 +659,62 @@ class ExtensionStageInteraction(BaseModel):
     example_command: str | None = None
 
 
+class PatchProposal(BaseModel):
+    """One grounded candidate mutation extracted from slash/NL input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str
+    path: str | None = None
+    payload: dict[str, Any] | None = None
+    value: Any = None
+    confidence: float = 1.0
+    source: Literal["slash", "semantic_nl", "llm", "legacy"] = "semantic_nl"
+    rationale: str | None = None
+
+
+class SemanticIntent(BaseModel):
+    """Normalized typed intent used by the unified conversation stack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "new_thread",
+        "use_extension",
+        "show",
+        "solve",
+        "validate",
+        "reset",
+        "help",
+        "explain",
+        "patch_draft",
+        "step",
+        "mode",
+        "confirm",
+        "reject",
+        "unknown",
+    ]
+    raw_message: str = ""
+    extension_alias: str | None = None
+    target: str | None = None
+    stage_id: str | None = None
+    interaction_mode: Literal["guided", "power"] | None = None
+
+
+class IntentResolution(BaseModel):
+    """Result of slash/NL interpretation before deterministic application."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["slash", "semantic_nl", "legacy_bare", "fallback"] = "fallback"
+    intent: SemanticIntent
+    proposals: list[PatchProposal] = Field(default_factory=list)
+    confidence: float = 0.0
+    grounded: bool = False
+    requires_confirmation: bool = False
+    clarifications: list[str] = Field(default_factory=list)
+
+
 class ExtensionInteractionState(BaseModel):
     """Dynamic typed interaction state for backend-owned chat threads."""
 
@@ -635,4 +734,8 @@ class ExtensionInteractionState(BaseModel):
     display: ExtensionDisplaySemantics | None = None
     result_sections: list[ExtensionResultSection] = Field(default_factory=list)
     commands: list[SlashCommandSpec] = Field(default_factory=list)
+    interaction_mode: Literal["guided", "power"] = "guided"
+    nl_apply_policy: Literal["confirm", "auto_if_confident"] = "confirm"
+    pending_proposals: list[PatchProposal] = Field(default_factory=list)
+    last_intent: IntentResolution | None = None
     semantics: ExtensionBundleSemantics | None = None

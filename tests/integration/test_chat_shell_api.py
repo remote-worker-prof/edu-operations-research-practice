@@ -220,3 +220,158 @@ def test_default_or_uses_same_thread_transport_in_plain_chat_mode() -> None:
     assert "assignment" in assistant_message
     assert "routing" in assistant_message
     assert payload["turn"]["session"]["messages"][-1]["role"] == "assistant"
+
+
+def test_thread_turn_explain_model_and_extension_are_grounded_in_real_artifacts() -> None:
+    """Explain-mode should read actual bundle artifacts or virtual canonical artifacts."""
+    client = TestClient(create_app())
+
+    study_thread = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "study_planner"},
+    ).json()["thread"]["thread_id"]
+    default_or_thread = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "default_or"},
+    ).json()["thread"]["thread_id"]
+
+    study_model = client.post(
+        f"/api/chat/threads/{study_thread}/turn",
+        json={"model_alias": "openai_default", "message": "/explain model"},
+    )
+    assert study_model.status_code == 200
+    assert "set COURSES;" in study_model.json()["turn"]["assistant_message"]
+
+    study_extension = client.post(
+        f"/api/chat/threads/{study_thread}/turn",
+        json={"model_alias": "openai_default", "message": "/explain extension"},
+    )
+    assert study_extension.status_code == 200
+    assert "format: student_math_v2" in study_extension.json()["turn"]["assistant_message"]
+
+    default_or_model = client.post(
+        f"/api/chat/threads/{default_or_thread}/turn",
+        json={"model_alias": "openai_default", "message": "/explain model"},
+    )
+    assert default_or_model.status_code == 200
+    assert "четырёхэтапный OR-конвейер" in default_or_model.json()["turn"]["assistant_message"]
+
+
+def test_guided_mode_keeps_open_ended_patch_in_confirmation_flow() -> None:
+    """Guided mode should require explicit confirmation before applying NL draft patches."""
+    client = TestClient(create_app())
+
+    thread_id = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "study_planner"},
+    ).json()["thread"]["thread_id"]
+
+    proposed = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={
+            "model_alias": "openai_default",
+            "message": 'courses course_names ["Math","Physics"], required_hours [12,18]',
+        },
+    )
+    assert proposed.status_code == 200
+    proposed_payload = proposed.json()
+    assert "напишите `да`" in proposed_payload["turn"]["assistant_message"]
+    assert len(proposed_payload["interaction"]["pending_proposals"]) == 2
+    assert proposed_payload["interaction"]["current_stage"] == "courses"
+
+    confirmed = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={"model_alias": "openai_default", "message": "да"},
+    )
+    assert confirmed.status_code == 200
+    confirmed_payload = confirmed.json()
+    assert confirmed_payload["interaction"]["pending_proposals"] == []
+    assert confirmed_payload["interaction"]["draft"]["courses"]["course_names"] == [
+        "Math",
+        "Physics",
+    ]
+    assert confirmed_payload["interaction"]["current_stage"] == "time_budget"
+
+
+def test_power_mode_auto_applies_grounded_default_or_patch_without_special_product_path() -> None:
+    """Migrated default_or should auto-apply grounded NL updates in power mode."""
+    client = TestClient(create_app())
+
+    thread_id = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "default_or"},
+    ).json()["thread"]["thread_id"]
+
+    mode_response = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={"model_alias": "openai_default", "message": "/mode power"},
+    )
+    assert mode_response.status_code == 200
+    assert mode_response.json()["interaction"]["interaction_mode"] == "power"
+
+    patched = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={
+            "model_alias": "openai_default",
+            "message": (
+                'production products ["A","B"], profits [40,30], '
+                'resource_matrix [[2,1],[1,1.5]], resource_limits [240,180], '
+                'demand_upper_bounds [70,80], pallet_factors [1.0,0.8]'
+            ),
+        },
+    )
+    assert patched.status_code == 200
+    patched_payload = patched.json()
+    assert patched_payload["interaction"]["interaction_mode"] == "power"
+    assert patched_payload["interaction"]["pending_proposals"] == []
+    assert patched_payload["interaction"]["draft"]["production"]["products"] == ["A", "B"]
+    assert patched_payload["interaction"]["draft"]["production"]["profits"] == [40, 30]
+    assert "Изменения применены." in patched_payload["turn"]["assistant_message"]
+
+
+def test_transportation_accepts_matrix_patch_from_open_ended_message() -> None:
+    """Matrix-aware declarative bundles should ground 2-D NL updates in the typed schema."""
+    client = TestClient(create_app())
+
+    thread_id = client.post(
+        "/api/chat/threads",
+        json={"model_alias": "openai_default", "extension_alias": "transportation"},
+    ).json()["thread"]["thread_id"]
+
+    setup_messages = [
+        '/payload origins {"origin_names":["North","South"],"supply":[20,15]}',
+        '/payload destinations {"destination_names":["East","West"],"demand":[10,25]}',
+        "/mode power",
+    ]
+    for message in setup_messages:
+        response = client.post(
+            f"/api/chat/threads/{thread_id}/turn",
+            json={"model_alias": "openai_default", "message": message},
+        )
+        assert response.status_code == 200
+
+    patched = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={
+            "model_alias": "openai_default",
+            "message": "costs cost_matrix [[4,6],[5,4]]",
+        },
+    )
+    assert patched.status_code == 200
+    patched_payload = patched.json()
+    assert patched_payload["interaction"]["interaction_mode"] == "power"
+    assert len(patched_payload["interaction"]["pending_proposals"]) == 1
+    assert "напишите `да`" in patched_payload["turn"]["assistant_message"]
+
+    confirmed = client.post(
+        f"/api/chat/threads/{thread_id}/turn",
+        json={"model_alias": "openai_default", "message": "да"},
+    )
+    assert confirmed.status_code == 200
+    confirmed_payload = confirmed.json()
+    assert confirmed_payload["interaction"]["pending_proposals"] == []
+    assert confirmed_payload["interaction"]["draft"]["costs"]["cost_matrix"] == [
+        [4, 6],
+        [5, 4],
+    ]
+    assert "Изменения применены." in confirmed_payload["turn"]["assistant_message"]

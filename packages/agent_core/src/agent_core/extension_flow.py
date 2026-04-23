@@ -16,12 +16,13 @@ from extension_api import (
     ExtensionTableInputSemantics,
     PresetLoaderExtensionProvider,
 )
-from or_core.models import ScenarioDraft
+from or_core.models import ORResult, ScenarioDraft
 from pydantic import BaseModel
 
 from agent_core.default_or_extension import (
     DEFAULT_OR_EXTENSION_ALIAS,
     default_or_extension_draft_from_scenario_draft,
+    default_or_scenario_draft_from_extension_draft,
 )
 from agent_core.extension_commands import parse_extension_command
 from agent_core.models import AgentSession, ChatMessage, CommandResult, StageStatusSnapshot
@@ -266,6 +267,19 @@ def _invalidate_extension_result(session: AgentSession) -> None:
     session.extension_result_sections = []
     session.explanation = None
     session.pre_run_summary = None
+    if is_default_or_extension(session.extension_alias):
+        session.or_result = None
+
+
+def sync_default_or_legacy_from_generic_state(session: AgentSession) -> None:
+    """Synchronizes legacy default_or slots from the generic extension state."""
+    if not is_default_or_extension(session.extension_alias):
+        return
+    session.scenario_draft = default_or_scenario_draft_from_extension_draft(
+        session.extension_draft
+    )
+    if session.extension_result is None:
+        session.or_result = None
 
 
 def _serialize_extension_result_value(
@@ -570,6 +584,8 @@ def _handle_run(
     session.extension_result = serialized_result
     session.extension_result_sections = runtime.build_result_sections(raw_result)
     session.explanation = runtime.fallback_explain(raw_result)
+    if is_default_or_extension(session.extension_alias) and isinstance(raw_result, ORResult):
+        session.or_result = raw_result
     if serialization_warning and serialization_warning not in session.warnings:
         session.warnings.append(serialization_warning)
     return GenericCollectOutcome(
@@ -745,7 +761,7 @@ def handle_extension_turn(
     user_message: str,
     registry: ExtensionRegistry,
 ) -> tuple[AgentSession, str]:
-    """Processes one deterministic extension turn for a non-default extension."""
+    """Processes one deterministic extension turn through the generic extension runtime."""
     session = session.model_copy(deep=True)
     session.errors = []
     discovered = registry.require(session.extension_alias)
@@ -771,6 +787,7 @@ def handle_extension_turn(
 
     if outcome.draft_changed:
         _invalidate_extension_result(session)
+        sync_default_or_legacy_from_generic_state(session)
 
     _recompute_extension_state(session=session, manifest=manifest, runtime=runtime)
     _sync_phase_and_summary(session, manifest)

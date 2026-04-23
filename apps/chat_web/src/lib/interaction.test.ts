@@ -70,6 +70,10 @@ function baseInteraction(): InteractionState {
     display: null,
     result_sections: [],
     commands: [],
+    interaction_mode: "guided",
+    nl_apply_policy: "confirm",
+    pending_proposals: [],
+    last_intent: null,
     semantics: {
       supported: true,
       mode: "declarative_bundle",
@@ -77,6 +81,69 @@ function baseInteraction(): InteractionState {
       dsl_format: "student_math_v2",
       wizard_mode: "linear",
       stage_ids: ["origins", "destinations", "costs"],
+      stages: [
+        {
+          stage_id: "origins",
+          label: "Склады",
+          aliases: ["origins", "origin"],
+          examples: ["Список складов и их запасов."],
+          fields: [
+            {
+              stage_id: "origins",
+              field_path: "origin",
+              label: "Склад",
+              aliases: ["origin", "origins"],
+              value_type: "json",
+            },
+            {
+              stage_id: "origins",
+              field_path: "supply",
+              label: "Запас",
+              aliases: ["supply"],
+              value_type: "number",
+            },
+          ],
+        },
+        {
+          stage_id: "destinations",
+          label: "Магазины",
+          aliases: ["destinations", "destination"],
+          examples: ["Список магазинов и их спроса."],
+          fields: [
+            {
+              stage_id: "destinations",
+              field_path: "destination",
+              label: "Магазин",
+              aliases: ["destination", "destinations"],
+              value_type: "json",
+            },
+            {
+              stage_id: "destinations",
+              field_path: "demand",
+              label: "Спрос",
+              aliases: ["demand"],
+              value_type: "number",
+            },
+          ],
+        },
+        {
+          stage_id: "costs",
+          label: "Матрица стоимостей",
+          aliases: ["costs", "cost"],
+          examples: ["Матрица стоимости перевозки."],
+          expectation_hint: "Введите матрицу стоимостей.",
+          fields: [
+            {
+              stage_id: "costs",
+              field_path: "cost",
+              label: "Стоимость перевозки",
+              aliases: ["cost", "costs"],
+              value_type: "json",
+            },
+          ],
+        },
+      ],
+      artifacts: [],
       display: {
         summary: [],
         tables: [],

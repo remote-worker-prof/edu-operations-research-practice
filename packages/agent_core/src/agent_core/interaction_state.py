@@ -65,8 +65,8 @@ def canonical_slash_commands() -> list[SlashCommandSpec]:
         ),
         SlashCommandSpec(
             name="/explain",
-            usage="/explain",
-            summary="Показать текстовое объяснение текущего результата.",
+            usage="/explain [model|extension|result|step <id>]",
+            summary="Объяснить результат или read-only DSL-артефакт.",
             category="user",
         ),
         SlashCommandSpec(
@@ -113,6 +113,13 @@ def canonical_slash_commands() -> list[SlashCommandSpec]:
             usage="/semantics",
             summary="Показать typed semantics текущего extension.",
             category="power",
+        ),
+        SlashCommandSpec(
+            name="/mode",
+            usage="/mode guided|power",
+            summary="Переключить confirm-first или power-user режим.",
+            category="power",
+            example="/mode power",
         ),
         SlashCommandSpec(
             name="/run",
@@ -205,6 +212,10 @@ def build_interaction_state(
         display=display,
         result_sections=list(session.extension_result_sections),
         commands=canonical_slash_commands(),
+        interaction_mode=session.interaction_mode,
+        nl_apply_policy=session.nl_apply_policy,
+        pending_proposals=list(session.pending_patch_proposals),
+        last_intent=session.last_intent_resolution,
         semantics=semantics,
     )
 

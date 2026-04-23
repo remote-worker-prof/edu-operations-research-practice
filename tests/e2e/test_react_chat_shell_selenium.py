@@ -131,3 +131,56 @@ def test_react_chat_keeps_default_or_available_in_plain_chat_mode(react_chat_pag
     assert "production" in answer
     assert "shipment" in answer
     assert "routing" in answer
+
+
+def test_react_chat_guided_and_power_modes_change_nl_apply_behavior(react_chat_page) -> None:
+    """Guided mode should confirm NL patches, while power mode may auto-apply them."""
+    assert react_chat_page.text_of("interaction-mode-value") == "guided"
+
+    react_chat_page.send_power_message(
+        'courses course_names ["Math","Physics"], required_hours [12,18]'
+    )
+    react_chat_page.wait_for_condition(
+        lambda: len(react_chat_page.find_all_by_testid("pending-proposals-card")) == 1,
+        failure_message="Guided mode did not surface confirmation proposals.",
+    )
+    assert react_chat_page.text_of("current-stage-value") == "courses"
+
+    react_chat_page.confirm_pending_proposals()
+    react_chat_page.wait_for_condition(
+        lambda: react_chat_page.text_of("current-stage-value") == "time_budget",
+        failure_message="Подтверждённые guided proposals не перевели сценарий к time_budget.",
+    )
+
+    react_chat_page.create_new_thread("default_or")
+    react_chat_page.wait_for_condition(
+        lambda: "Default OR Pipeline" in react_chat_page.text_of("active-extension-title"),
+        failure_message="default_or thread did not become active.",
+    )
+    react_chat_page.set_interaction_mode("power")
+    react_chat_page.send_power_message(
+        'production products ["A","B"], profits [40,30], '
+        'resource_matrix [[2,1],[1,1.5]], resource_limits [240,180], '
+        'demand_upper_bounds [70,80], pallet_factors [1.0,0.8]'
+    )
+    react_chat_page.wait_for_condition(
+        lambda: react_chat_page.text_of("interaction-mode-value") == "power"
+        and "Изменения применены." in react_chat_page.last_assistant_message(),
+        failure_message="Power mode не автоприменил grounded NL patch.",
+    )
+    assert react_chat_page.find_all_by_testid("pending-proposals-card") == []
+
+
+def test_react_chat_can_explain_default_or_model_through_semantics_adapter(
+    react_chat_page,
+) -> None:
+    """Migrated default_or should expose read-only model explanations in the new shell."""
+    react_chat_page.create_new_thread("default_or")
+    react_chat_page.wait_for_condition(
+        lambda: "Default OR Pipeline" in react_chat_page.text_of("active-extension-title"),
+        failure_message="default_or thread did not become active.",
+    )
+
+    react_chat_page.send_power_message("/explain model")
+    answer = react_chat_page.last_assistant_message().lower()
+    assert "четырёхэтапный or-конвейер" in answer

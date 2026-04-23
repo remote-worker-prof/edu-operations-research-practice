@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from extension_api import (
+    ExtensionArtifactSemantics,
+    ExtensionBundleSemantics,
+    ExtensionFieldSemantics,
     ExtensionManifest,
     ExtensionResultSection,
+    ExtensionStageSemantics,
     FieldSpec,
     KVBlock,
     KVItem,
@@ -42,6 +46,43 @@ _STAGE_EXAMPLES = {
         'json routing {"distance_matrix":[[0,10,12,8],[10,0,6,7],[12,6,0,9],[8,7,9,0]],'
         '"depot_index":0,"client_nodes":[1,2,3],"vehicle_capacities":[55,45,45]}'
     ),
+}
+
+_DEFAULT_OR_FIELD_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
+    "production": {
+        "products": ("products", "продукты"),
+        "profits": ("profits", "прибыль"),
+        "resource_matrix": ("resource_matrix", "матрица ресурсов"),
+        "resource_limits": ("resource_limits", "лимиты ресурсов"),
+        "demand_upper_bounds": ("demand_upper_bounds", "верхние границы спроса", "спрос"),
+        "pallet_factors": ("pallet_factors", "коэффициенты паллет"),
+    },
+    "shipment": {
+        "warehouses": ("warehouses", "склады"),
+        "warehouse_supply_ratio": ("warehouse_supply_ratio", "доли складов"),
+        "clients": ("clients", "клиенты"),
+        "client_demand": ("client_demand", "спрос клиентов"),
+        "cost_matrix": ("cost_matrix", "матрица стоимости"),
+        "capacity_matrix": ("capacity_matrix", "матрица пропускной способности", "capacity"),
+    },
+    "assignment": {
+        "resources": ("resources", "ресурсы", "машины"),
+        "cost_matrix": ("cost_matrix", "матрица назначения", "стоимость назначения"),
+    },
+    "routing": {
+        "distance_matrix": ("distance_matrix", "матрица расстояний"),
+        "depot_index": ("depot_index", "депо", "depot"),
+        "client_nodes": ("client_nodes", "узлы клиентов"),
+        "vehicle_capacities": ("vehicle_capacities", "емкости", "ёмкости", "capacities"),
+        "objective": ("objective", "цель", "objective"),
+    },
+}
+
+_DEFAULT_OR_STAGE_HINTS: dict[str, str] = {
+    "production": "Введите продукты, прибыль, ресурсную матрицу и лимиты производства.",
+    "shipment": "Введите склады, клиентов, спрос и матрицы стоимости/пропускной способности.",
+    "assignment": "Введите ресурсы и матрицу стоимости назначения.",
+    "routing": "Введите матрицу расстояний, depot, клиентов и ёмкости транспорта.",
 }
 
 _DEFAULT_OR_MANIFEST = ExtensionManifest(
@@ -230,8 +271,8 @@ class DefaultORCompatibilityRuntime:
         return []
 
     def build_nl_semantics(self) -> dict[str, object]:
-        """Returns reserved placeholder metadata for future generic NL support."""
-        return {"supported": True, "mode": "legacy_default_or"}
+        """Returns typed semantics so the new chat can treat `default_or` generically."""
+        return _build_default_or_semantics().model_dump(mode="json")
 
 
 class DefaultORExtensionProvider:
@@ -267,3 +308,93 @@ def default_or_extension_draft_from_scenario_draft(
         if payload:
             mirrored[stage_id] = dict(payload)
     return mirrored
+
+
+def default_or_scenario_draft_from_extension_draft(
+    draft: dict[str, object],
+) -> ScenarioDraft:
+    """Build a legacy `ScenarioDraft` mirror from the generic extension draft."""
+    return ScenarioDraft(
+        production=dict(draft.get("production", {}) or {}),
+        shipment=dict(draft.get("shipment", {}) or {}),
+        assignment=dict(draft.get("assignment", {}) or {}),
+        routing=dict(draft.get("routing", {}) or {}),
+        preset_ref=draft.get("preset_ref") if isinstance(draft.get("preset_ref"), str) else None,
+    )
+
+
+def _default_or_model_artifact() -> str:
+    """Return a grounded read-only description of the legacy four-stage OR pipeline."""
+    return "\n".join(
+        [
+            "# default_or",
+            "",
+            "Это встроенный четырёхэтапный OR-конвейер:",
+            "1. production — план выпуска продукции через LP.",
+            "2. shipment — план отгрузки через min-cost flow.",
+            "3. assignment — назначение ресурсов на клиентские задачи.",
+            "4. routing — маршрутизация транспорта.",
+            "",
+            "Каждый этап принимает JSON-пейлоад по своему stage_id и использует результат",
+            "предыдущих этапов как часть runtime-входа.",
+        ]
+    )
+
+
+def _build_default_or_semantics() -> ExtensionBundleSemantics:
+    """Build typed parser/NL/explain semantics for the legacy default OR bundle."""
+    stages: list[ExtensionStageSemantics] = []
+    for stage in _DEFAULT_OR_MANIFEST.stage_graph:
+        fields: list[ExtensionFieldSemantics] = []
+        field_aliases = _DEFAULT_OR_FIELD_ALIASES.get(stage.stage_id, {})
+        for field in stage.field_specs:
+            fields.append(
+                ExtensionFieldSemantics(
+                    stage_id=stage.stage_id,
+                    field_path=field.field_path,
+                    label=field.label,
+                    aliases=list(field_aliases.get(field.field_path, field.aliases)),
+                    value_type="json",
+                    help=field.description,
+                    example=field.examples[0] if field.examples else None,
+                )
+            )
+        stages.append(
+            ExtensionStageSemantics(
+                stage_id=stage.stage_id,
+                label=stage.label,
+                aliases=list(stage.aliases)
+                + list(_DEFAULT_OR_MANIFEST.stage_aliases.get(stage.stage_id, [])),
+                examples=list(stage.examples),
+                expectation_hint=_DEFAULT_OR_STAGE_HINTS.get(stage.stage_id),
+                fields=fields,
+            )
+        )
+
+    manifest_json = _DEFAULT_OR_MANIFEST.model_dump_json(indent=2)
+    return ExtensionBundleSemantics(
+        mode="runtime_bundle",
+        alias=DEFAULT_OR_EXTENSION_ALIAS,
+        dsl_format="default_or_legacy",
+        stage_ids=list(DEFAULT_OR_STAGE_ORDER),
+        inputs=[],
+        stages=stages,
+        artifacts=[
+            ExtensionArtifactSemantics(
+                id="model",
+                kind="model",
+                label="Каноническая схема default_or",
+                language="markdown",
+                content=_default_or_model_artifact(),
+                summary="Описание встроенного четырёхэтапного OR-конвейера.",
+            ),
+            ExtensionArtifactSemantics(
+                id="extension",
+                kind="extension",
+                label="Manifest default_or",
+                language="json",
+                content=manifest_json,
+                summary="Текущий manifest встроенного extension `default_or`.",
+            ),
+        ],
+    )

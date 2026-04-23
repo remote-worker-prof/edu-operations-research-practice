@@ -10,9 +10,11 @@ from typing import Annotated, Any, Literal
 
 import yaml
 from extension_api import (
+    ExtensionArtifactSemantics,
     ExtensionBundleSemantics,
     ExtensionDisplayColumnSemantics,
     ExtensionDisplaySemantics,
+    ExtensionFieldSemantics,
     ExtensionInputStepSemantics,
     ExtensionManifest,
     ExtensionMatrixDisplaySemantics,
@@ -20,6 +22,7 @@ from extension_api import (
     ExtensionMatrixInputSemantics,
     ExtensionResultSection,
     ExtensionScalarInputSemantics,
+    ExtensionStageSemantics,
     ExtensionSummaryDisplaySemantics,
     ExtensionSymbolSemantics,
     ExtensionTableColumnSemantics,
@@ -738,11 +741,17 @@ class DeclarativeExtensionRuntime:
 
     def build_nl_semantics(self) -> dict[str, object]:
         if self._bundle.semantics is not None:
-            return self._bundle.semantics.model_dump(mode="json")
-        return _build_bundle_semantics_from_compiled_config(
-            config=self._bundle.config,
-            model=self._bundle.model,
-        ).model_dump(mode="json")
+            semantics = self._bundle.semantics
+        else:
+            semantics = _build_bundle_semantics_from_compiled_config(
+                config=self._bundle.config,
+                model=self._bundle.model,
+            )
+        if not semantics.artifacts:
+            semantics = semantics.model_copy(
+                update={"artifacts": _build_bundle_artifacts(self._bundle.root_path, semantics)}
+            )
+        return semantics.model_dump(mode="json")
 
     def _resolve_bound_input(
         self,
@@ -1331,6 +1340,13 @@ def _build_student_math_bundle_semantics(
         config=config.display,
         model=model,
     )
+    stages = [
+        _build_stage_semantics_from_step(
+            step=step_semantics,
+            expectation_hint=_student_math_expectation_hint(step),
+        )
+        for step, step_semantics in zip(config.inputs, inputs, strict=False)
+    ]
     return ExtensionBundleSemantics(
         alias=config.extension.alias,
         dsl_format="student_math_v2",
@@ -1338,6 +1354,7 @@ def _build_student_math_bundle_semantics(
         symbols=_build_student_math_symbol_catalog(model),
         inputs=inputs,
         display=display,
+        stages=stages,
     )
 
 
@@ -2215,6 +2232,27 @@ def _build_bundle_semantics_from_compiled_config(
             )
         )
 
+    stages = [
+        ExtensionStageSemantics(
+            stage_id=stage.stage_id,
+            label=stage.label,
+            aliases=list(stage.aliases),
+            examples=list(stage.examples),
+            fields=[
+                ExtensionFieldSemantics(
+                    stage_id=stage.stage_id,
+                    field_path=field.field_path,
+                    label=field.label,
+                    aliases=list(field.aliases),
+                    value_type=field.value_type or "json",
+                    help=field.description,
+                    example=field.examples[0] if field.examples else None,
+                )
+                for field in stage.field_specs
+            ],
+        )
+        for stage in config.stages
+    ]
     return ExtensionBundleSemantics(
         alias=config.extension.alias,
         dsl_format=str(config.extension.ui_metadata.get("dsl_format", config.format)),
@@ -2222,7 +2260,142 @@ def _build_bundle_semantics_from_compiled_config(
         symbols=_build_student_math_symbol_catalog(model),
         inputs=inputs,
         display=ExtensionDisplaySemantics(),
+        stages=stages,
     )
+
+
+def _student_math_expectation_hint(step: _StudentMathInputStepConfig) -> str | None:
+    if step.table is not None:
+        column_labels = ", ".join(column.label for column in step.table.columns)
+        return (
+            f"Ожидается таблица: ключ `{step.table.key.label}`"
+            + (f" и колонки {column_labels}." if column_labels else ".")
+        )
+    if step.matrix is not None:
+        field_labels = ", ".join(field.label for field in step.matrix.fields)
+        return (
+            f"Ожидается матрица `{field_labels}` по множествам "
+            f"`{step.matrix.rows_set}` x `{step.matrix.cols_set}`."
+        )
+    field_labels = ", ".join(
+        field.label for field in [*step.params, *step.vectors]
+    )
+    if not field_labels:
+        return None
+    return f"Ожидаемые поля: {field_labels}."
+
+
+def _build_stage_semantics_from_step(
+    *,
+    step: ExtensionInputStepSemantics,
+    expectation_hint: str | None,
+) -> ExtensionStageSemantics:
+    fields: list[ExtensionFieldSemantics] = []
+    for field in step.scalars:
+        fields.append(
+            ExtensionFieldSemantics(
+                stage_id=step.step_id,
+                field_path=field.field_path,
+                label=field.label,
+                aliases=list(field.aliases),
+                value_type=field.value_type,
+                help=field.help,
+                example=field.example,
+            )
+        )
+    for field in step.vectors:
+        fields.append(
+            ExtensionFieldSemantics(
+                stage_id=step.step_id,
+                field_path=field.field_path,
+                label=field.label,
+                aliases=list(field.aliases),
+                value_type=field.value_type,
+                help=field.help,
+                example=field.example,
+            )
+        )
+    if isinstance(step.shape, ExtensionTableInputSemantics):
+        fields.append(
+            ExtensionFieldSemantics(
+                stage_id=step.step_id,
+                field_path=step.shape.key.field_path,
+                label=step.shape.key.label,
+                aliases=list(step.shape.key.aliases),
+                value_type="string",
+                help=step.shape.key.help,
+                example=step.shape.key.example,
+            )
+        )
+        for column in step.shape.columns:
+            fields.append(
+                ExtensionFieldSemantics(
+                    stage_id=step.step_id,
+                    field_path=column.field_path,
+                    label=column.label,
+                    aliases=list(column.aliases),
+                    value_type=column.value_type,
+                    help=column.help,
+                    example=column.example,
+                )
+            )
+    if isinstance(step.shape, ExtensionMatrixInputSemantics):
+        for field in step.shape.fields:
+            fields.append(
+                ExtensionFieldSemantics(
+                    stage_id=step.step_id,
+                    field_path=field.field_path,
+                    label=field.label,
+                    aliases=list(field.aliases),
+                    value_type=field.value_type,
+                    help=field.help,
+                    example=field.example,
+                )
+            )
+    return ExtensionStageSemantics(
+        stage_id=step.step_id,
+        label=step.label,
+        aliases=list(step.aliases),
+        examples=[step.example_command] if step.example_command else [],
+        expectation_hint=expectation_hint,
+        fields=fields,
+    )
+
+
+def _build_bundle_artifacts(
+    root_path: Path,
+    semantics: ExtensionBundleSemantics,
+) -> list[ExtensionArtifactSemantics]:
+    artifacts: list[ExtensionArtifactSemantics] = []
+    for filename, artifact_id, kind, label, language in (
+        ("model.orx", "model", "model", "Математическая модель", "orx"),
+        ("extension.yaml", "extension", "extension", "Структура extension", "yaml"),
+    ):
+        candidate = root_path / filename
+        if not candidate.exists():
+            continue
+        artifacts.append(
+            ExtensionArtifactSemantics(
+                id=artifact_id,
+                kind=kind,
+                label=label,
+                language=language,
+                path=str(candidate),
+                content=candidate.read_text(encoding="utf-8"),
+                summary=f"Read-only artifact `{filename}` для extension `{semantics.alias}`.",
+            )
+        )
+    artifacts.append(
+        ExtensionArtifactSemantics(
+            id="semantics_snapshot",
+            kind="semantics_snapshot",
+            label="Typed semantics snapshot",
+            language="json",
+            content=json.dumps(semantics.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            summary="Сериализованный typed semantics snapshot текущего extension.",
+        )
+    )
+    return artifacts
 
 
 def _pivot_matrix_rows(

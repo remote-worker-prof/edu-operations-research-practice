@@ -42,6 +42,49 @@ export interface SlashCommandSpec {
   example?: string | null;
 }
 
+export interface PatchProposal {
+  stage_id: string;
+  path?: string | null;
+  payload?: Record<string, unknown> | null;
+  value?: unknown;
+  confidence: number;
+  source: "slash" | "semantic_nl" | "llm" | "legacy";
+  rationale?: string | null;
+}
+
+export interface SemanticIntent {
+  kind:
+    | "new_thread"
+    | "use_extension"
+    | "show"
+    | "solve"
+    | "validate"
+    | "reset"
+    | "help"
+    | "explain"
+    | "patch_draft"
+    | "step"
+    | "mode"
+    | "confirm"
+    | "reject"
+    | "unknown";
+  raw_message: string;
+  extension_alias?: string | null;
+  target?: string | null;
+  stage_id?: string | null;
+  interaction_mode?: "guided" | "power" | null;
+}
+
+export interface IntentResolution {
+  source: "slash" | "semantic_nl" | "legacy_bare" | "fallback";
+  intent: SemanticIntent;
+  proposals: PatchProposal[];
+  confidence: number;
+  grounded: boolean;
+  requires_confirmation: boolean;
+  clarifications: string[];
+}
+
 export interface ExtensionOption {
   alias: string;
   title: string;
@@ -167,11 +210,36 @@ export interface DisplaySemantics {
 
 export interface BundleSemantics {
   supported: boolean;
-  mode: "declarative_bundle";
+  mode: "declarative_bundle" | "runtime_bundle";
   alias: string;
   dsl_format: string;
   wizard_mode: "linear";
   stage_ids: string[];
+  stages: Array<{
+    stage_id: string;
+    label: string;
+    aliases: string[];
+    examples: string[];
+    expectation_hint?: string | null;
+    fields: Array<{
+      stage_id: string;
+      field_path: string;
+      label: string;
+      aliases: string[];
+      value_type: "number" | "string" | "json";
+      help?: string | null;
+      example?: unknown;
+    }>;
+  }>;
+  artifacts: Array<{
+    id: string;
+    kind: "model" | "extension" | "semantics_snapshot";
+    label: string;
+    language?: string | null;
+    path?: string | null;
+    content?: string | null;
+    summary?: string | null;
+  }>;
   display: DisplaySemantics;
   inputs: InputStepSemantics[];
 }
@@ -191,6 +259,10 @@ export interface InteractionState {
   display?: DisplaySemantics | null;
   result_sections: ResultSection[];
   commands: SlashCommandSpec[];
+  interaction_mode: "guided" | "power";
+  nl_apply_policy: "confirm" | "auto_if_confident";
+  pending_proposals: PatchProposal[];
+  last_intent?: IntentResolution | null;
   semantics?: BundleSemantics | null;
 }
 

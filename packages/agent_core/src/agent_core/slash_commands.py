@@ -40,6 +40,7 @@ def parse_slash_command(message: str) -> SlashCommand | None:
         "validate",
         "run",
         "semantics",
+        "mode",
     }:
         return SlashCommand(name=name, arg=remainder or None)
 

@@ -45,7 +45,18 @@ Selenium-видео, смотрите [video_scenarios/README.md](video_scenario
 - Потом расчёт запускается только по явному действию или команде `/solve`.
 - Есть 2 основных способа общения в новом shell:
   - guided UX: формы, таблицы, матрицы и кнопки действий;
-  - slash/power-user режим: `/show`, `/solve`, `/help`, `/payload`, `/set`.
+  - semantics-driven чат: slash-команды и open-ended сообщения.
+- Есть 2 режима применения NL-изменений:
+  - `guided` — чат всегда просит подтверждение;
+  - `power` — чат может автоприменить хорошо grounded изменения при высокой уверенности.
+- Основные slash-команды теперь такие:
+  - `/use`
+  - `/show`
+  - `/solve`
+  - `/validate`
+  - `/reset`
+  - `/explain model|extension|result|step`
+  - `/mode guided|power`
 - Legacy bare-команды `json <stage> {...}` и `run` остаются backend-compatible,
   но уже не считаются основным интерфейсом.
 - Если нужен полный reference по этому полу-DSL, лучше сразу открыть
@@ -84,7 +95,7 @@ Selenium-видео, смотрите [video_scenarios/README.md](video_scenario
 
 ## 2. Какие есть 2 режима общения
 
-### 2.1 Natural-language режим
+### 2.1 Semantics-driven NL режим
 
 Вы пишете почти “по-человечески”, например:
 
@@ -99,21 +110,25 @@ production profits [40,30], products ["A","B"]
 3. ждёт подтверждение `да` или отклонение `нет`;
 4. только после подтверждения записывает данные в `ScenarioDraft`.
 
+Если включён режим `power` и сообщение полностью grounded в typed semantics,
+чат может применить изменения сразу без отдельного шага подтверждения.
+
 Этот режим удобен, когда:
 
 - вы мыслите параметрами модели, а не командами;
 - хотите быстро написать несколько полей в одной реплике;
 - готовы глазами проверить, что чат всё понял правильно.
 
-### 2.2 Детерминированный command-режим
+### 2.2 Явный slash-command режим
 
 Вы используете точные команды:
 
-- `json <stage> {...}`
-- `set <stage>.<field> <value>`
-- `show input`
-- `next`
-- `run`
+- `/payload <stage> {...}`
+- `/set <stage>.<field> <value>`
+- `/show draft`
+- `/show steps`
+- `/solve`
+- `/explain ...`
 - и так далее.
 
 Этот режим удобен, когда:
@@ -128,6 +143,7 @@ production profits [40,30], products ["A","B"]
 Самая безопасная стратегия такая:
 
 - если вы обычный пользователь, оставайтесь в guided UI и не вводите сырой JSON без необходимости;
+- если вы пишете свободным текстом, начинайте в режиме `guided`, чтобы чат сначала показывал patch-предложения;
 - если нужен полный контроль, переходите на slash-команды `/payload` и `/set`;
 - если вы работаете со старым shell или тестовым сценарием, legacy-команды `json` и `set` всё ещё совместимы.
 
@@ -139,7 +155,7 @@ production profits [40,30], products ["A","B"]
 [Сообщение пользователя]
           |
           v
-  Это явная команда-prefix?
+  Это slash-команда?
           |
      +----+----+
      |         |
@@ -148,13 +164,15 @@ production profits [40,30], products ["A","B"]
      v         v
 [command      [NL parser]
  parser]          |
-     |            +--> нашёл intent confirm/reject/help/run?
+     |            +--> нашёл intent confirm/reject/help/show/solve/explain?
      |            |        |
      |            |        +--> да: special handling
      |            |
      |            +--> нашёл candidate patches?
      |                     |
-     |                     +--> да: показать, что понял -> ждать `да/нет`
+     |                     +--> да: показать patch proposal
+     |                     |         -> guided: ждать `да/нет`
+     |                     |         -> power: иногда применить сразу
      |                     +--> нет: уточнить ошибку / предложить json/set
      |
      +--> update draft / show draft / move stage / load preset / try run
@@ -169,7 +187,7 @@ production profits [40,30], products ["A","B"]
 Ключевая идея:
 
 - одно сообщение не идёт напрямую в OR-пайплайн;
-- сначала чат решает, это команда, natural-language ввод или подтверждение;
+- сначала чат решает, это slash-команда, natural-language ввод или подтверждение;
 - затем пересчитывает состояние draft;
 - и только потом решает, можно ли считать.
 

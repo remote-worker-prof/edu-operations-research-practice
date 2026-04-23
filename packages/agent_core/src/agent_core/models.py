@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from extension_api import ExtensionResultSection
+from extension_api import ExtensionResultSection, IntentResolution, PatchProposal
 from or_core.models import ORResult, ScenarioDraft
 from pydantic import BaseModel, Field, computed_field
 
@@ -153,6 +153,10 @@ class AgentSession(BaseModel):
     extension_result: Any | None = None
     extension_result_sections: list[ExtensionResultSection] = Field(default_factory=list)
     extension_stage_statuses: list[StageStatusSnapshot] = Field(default_factory=list)
+    interaction_mode: Literal["guided", "power"] = "guided"
+    nl_apply_policy: Literal["confirm", "auto_if_confident"] = "confirm"
+    pending_patch_proposals: list[PatchProposal] = Field(default_factory=list)
+    last_intent_resolution: IntentResolution | None = None
     scenario_draft: ScenarioDraft = Field(default_factory=ScenarioDraft)
     collection_state: CollectionState = Field(default_factory=CollectionState)
     confirmation_state: ConfirmationState = Field(default_factory=ConfirmationState)

@@ -21,8 +21,19 @@ slice платформы расширений:
 
 - built-in extension `default_or` с текущим OR-конвейером;
 - отдельный `study_planner` как минимальный пример student-authored extension;
+- `transportation` как runnable 2-D reference extension;
 - выбор extension происходит **на сессию**;
 - если сессия уже непустая, перед сменой extension нужно сначала отправить `reset`.
+
+После последней фазы новый React chat уже работает как semantics-driven
+conversation platform:
+
+- typed semantics — единый источник истины для guided UI, slash-команд и
+  open-ended NL;
+- есть два режима взаимодействия: `guided` и `power`;
+- чат умеет безопасно предлагать patch-изменения и просить подтверждение;
+- поддерживаются grounded explain-команды:
+  `/explain model`, `/explain extension`, `/explain result`, `/explain step <id>`.
 
 ## Технологии
 
@@ -37,7 +48,7 @@ slice платформы расширений:
 
 - `apps/webapp` — веб-приложение и API
 - `apps/chat_web` — новый React/Next.js AI-чат с guided UX
-- `packages/agent_core` — диалоговый агент, сессии, LLM-адаптер
+- `packages/agent_core` — conversation core, typed semantics, сессии, LLM-адаптер
 - `packages/or_core` — доменные модели и OR-солверы
 - `data/scenarios` — учебные сценарии
 - `tests` — unit/integration/API/browser E2E тесты
@@ -65,6 +76,13 @@ uv run --package webapp uvicorn webapp.main:app --reload
 make chat-web-install
 make chat-web-dev
 ```
+
+В новом shell основной UX beginner-first:
+
+- guided формы, таблицы и матрицы строятся из typed semantics extension-а;
+- slash-команды нужны в основном для преподавателя, тестов и power-user режима;
+- open-ended NL остаётся guarded: draft не меняется “магически”, а только через
+  grounded patch proposals и policy `guided`/`power`.
 
 ## Makefile
 
